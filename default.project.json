@@ -1,0 +1,52 @@
+{
+  "name": "MayorsFactoryTycoon",
+  "tree": {
+    "$className": "DataModel",
+
+    "Workspace": {
+      "$className": "Workspace",
+      "Plots": {
+        "$className": "Folder",
+        "Plot1": {"$path": "src/Workspace/Models/Plots/Plot1.rbxm"},
+        "Plot2": {"$path": "src/Workspace/Models/Plots/Plot2.rbxm"},
+        "Plot3": {"$path": "src/Workspace/Models/Plots/Plot3.rbxm"},
+        "Plot4": {"$path": "src/Workspace/Models/Plots/Plot4.rbxm"},
+        "Plot5": {"$path": "src/Workspace/Models/Plots/Plot5.rbxm"},
+        "Plot6": {"$path": "src/Workspace/Models/Plots/Plot6.rbxm"}
+      },
+      "World": {
+        "$className": "Folder",
+        "Baseplate": {"$path": "src/Workspace/Models/World/Baseplate.rbxm"},
+        "Road1": {"$path": "src/Workspace/Models/World/Road1.rbxm"},
+        "Road2": {"$path": "src/Workspace/Models/World/Road2.rbxm"}
+      }
+    },
+
+    "ReplicatedStorage": {
+      "$className": "ReplicatedStorage",
+      "Shared": {
+        "$path": "src/ReplicatedStorage/Shared",
+        "ItemTemplates": {
+          "$className": "Folder",
+          "RubiksCube": {"$path": "src/ReplicatedStorage/Shared/ItemTemplates/RubiksCube.rbxm"},
+          "TreeFarm": {"$path": "src/ReplicatedStorage/Shared/ItemTemplates/TreeFarm.rbxm"},
+          "MineEntrace": {"$path": "src/ReplicatedStorage/Shared/ItemTemplates/MineEntrace.rbxm"},
+          "Sawmill": {"$path": "src/ReplicatedStorage/Shared/ItemTemplates/Sawmill.rbxm"}
+        }
+      }
+    },
+
+    "ServerScriptService": {
+      "$className": "ServerScriptService",
+      "$path": "src/ServerScriptService"
+    },
+
+    "StarterPlayer": {
+      "$className": "StarterPlayer",
+      "StarterPlayerScripts": {
+        "$className": "StarterPlayerScripts",
+        "$path": "src/StarterPlayer/StarterPlayerScripts"
+      }
+    }
+  }
+}
