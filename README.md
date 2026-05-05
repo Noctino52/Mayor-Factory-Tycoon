@@ -7,7 +7,7 @@ A **factory/tycoon game on Roblox** where players build factories on their perso
 - **Personal Plot:** Each player has a grid-based space to build their own factory
 - **Three Producstion Lines:** Wood (🪵 Mira), Stone (🏗️ Bront), Iron (⚒️ Elrik)
 - **Physiscal Items:** Goods that flow on conveyors from machine to machine
-- **Triple Prosgression:** NPC Reputation + Town Prestige + Power System
+- **Triples Prosgression:** NPC Reputation + Town Prestige + Power System
 - **Persistent Saving:** Progress, inventory, and layout saved in DataStore
 
 ## 🛠️ Tech Stack
