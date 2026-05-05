@@ -7,6 +7,10 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 local DataStoreService = game:GetService("DataStoreService")
 
+-- Import modules
+local PlayerProgress = require(game.ServerScriptService.PlayerProgress)
+local Definitions = require(game.ReplicatedStorage.Shared.Definitions)
+
 -- Configuration
 local GRID_UNIT_SIZE = 8 -- Fixed grid size in studs
 local MAX_PLOTS = 6 -- Maximum number of plots
@@ -26,6 +30,19 @@ end
 -- Get templates folder
 local templatesFolder = ReplicatedStorage:WaitForChild("ItemTemplates")
 
+-- Clean up all sounds from templates at startup
+task.spawn(function()
+    wait(0.5) -- Give time for templates to load
+    for _, template in ipairs(templatesFolder:GetChildren()) do
+        for _, sound in ipairs(template:GetDescendants()) do
+            if sound:IsA("Sound") then
+                sound:Destroy()
+            end
+        end
+    end
+    print("[InventoryManager] Removed sounds from all templates")
+end)
+
 -- Create RemoteEvents
 local placeItemRemote = Instance.new("RemoteEvent")
 placeItemRemote.Name = "PlaceItem"
@@ -44,6 +61,26 @@ local getPlotRemote = Instance.new("RemoteFunction")
 getPlotRemote.Name = "GetPlayerPlot"
 getPlotRemote.Parent = ReplicatedStorage
 
+-- Create RemoteFunctions for player progress
+local getMoneyRemote = Instance.new("RemoteFunction")
+getMoneyRemote.Name = "GetMoney"
+getMoneyRemote.Parent = ReplicatedStorage
+
+local getReputationRemote = Instance.new("RemoteFunction")
+getReputationRemote.Name = "GetReputation"
+getReputationRemote.Parent = ReplicatedStorage
+
+local getPlacedItemsRemote = Instance.new("RemoteFunction")
+getPlacedItemsRemote.Name = "GetPlacedItems"
+getPlacedItemsRemote.Parent = ReplicatedStorage
+
+local getTownPrestigeRemote = Instance.new("RemoteFunction")
+getTownPrestigeRemote.Name = "GetTownPrestige"
+getTownPrestigeRemote.Parent = ReplicatedStorage
+
+-- Configuration Constants
+local MAX_ITEMS_PER_PLOT = 20
+
 -- Player data storage
 local playerData = {}
 
@@ -58,6 +95,15 @@ local DEFAULT_INVENTORY = {
     {itemName = "MineEntrance", count = 1},
     {itemName = "Sawmill", count = 5}
 }
+
+-- Function to remove all sounds from a model
+local function removeAllSounds(model)
+    for _, descendant in ipairs(model:GetDescendants()) do
+        if descendant:IsA("Sound") then
+            descendant.Parent = nil
+        end
+    end
+end
 
 -- Function to get plot by ID
 local function getPlotById(plotId)
@@ -374,6 +420,9 @@ local function spawnSavedItems(player, itemsData, plotId)
         if template then
             local newItem = template:Clone()
             
+            -- Remove all sounds from the model
+            removeAllSounds(newItem)
+            
             -- Apply scale
             local currentScale = newItem:GetScale()
             newItem:ScaleTo(currentScale * (itemInfo.scaleFactor or 1))
@@ -420,6 +469,10 @@ end
 
 -- Handle player joining
 local function onPlayerAdded(player)
+    -- Initialize player progress (money, reputation, etc.)
+    local progress = PlayerProgress.GetPlayerProgress(player)
+    print("[PlayerProgress] Loaded progress for " .. player.Name .. " - Money: " .. progress.money)
+    
     -- Try to load saved data
     local savedData = loadPlayerData(player)
     
@@ -488,6 +541,9 @@ local function onPlayerRemoving(player)
     -- Save player data before leaving
     savePlayerData(player)
     
+    -- Clear player progress from cache
+    PlayerProgress.ClearPlayerData(player)
+    
     -- Clean up placed items from workspace (but keep in DataStore)
     local playerItemsFolder = workspace:FindFirstChild("PlayerItems_" .. player.UserId)
     if playerItemsFolder then
@@ -511,6 +567,23 @@ placeItemRemote.OnServerEvent:Connect(function(player, itemName, position, scale
     local plotId = playerPlots[player.UserId]
     if not plotId then
         return false, "No plot assigned"
+    end
+    
+    -- Check if player has already reached the max items limit
+    if #data.placedItems >= MAX_ITEMS_PER_PLOT then
+        print(player.Name .. " tried to place " .. itemName .. " but has reached max items limit (" .. MAX_ITEMS_PER_PLOT .. ")")
+        return false, "Max items placed: " .. MAX_ITEMS_PER_PLOT
+    end
+    
+    -- Check if this is a placeable item with cost
+    local itemDef = Definitions.GetItem(itemName)
+    if itemDef and itemDef.cost then
+        -- Check if player has enough money
+        local progress = PlayerProgress.GetPlayerProgress(player)
+        if progress.money < itemDef.cost then
+            print(player.Name .. " tried to place " .. itemName .. " but has insufficient funds")
+            return false, "Insufficient funds"
+        end
     end
     
     -- Check if player has this item
@@ -551,6 +624,9 @@ placeItemRemote.OnServerEvent:Connect(function(player, itemName, position, scale
     -- Place the item
     local newItem = template:Clone()
     
+    -- Remove all sounds from the model
+    removeAllSounds(newItem)
+    
     -- Apply scale to fit in one cell
     local currentScale = newItem:GetScale()
     newItem:ScaleTo(currentScale * scaleFactor)
@@ -579,6 +655,12 @@ placeItemRemote.OnServerEvent:Connect(function(player, itemName, position, scale
     end
     
     table.insert(data.placedItems, newItem)
+    
+    -- Deduct money if this item has a cost
+    if itemDef and itemDef.cost then
+        local newBalance = PlayerProgress.AddMoney(player, -itemDef.cost)
+        print(player.Name .. " placed " .. itemName .. " for " .. itemDef.cost .. "💵 - New balance: " .. newBalance)
+    end
     
     -- Save after placing
     savePlayerData(player)
@@ -634,10 +716,18 @@ deleteItemRemote.OnServerEvent:Connect(function(player, item)
         table.insert(data.inventory, {itemName = itemName, count = 1})
     end
     
+    -- Refund 50% of the cost if item has a cost
+    local itemDef = Definitions.GetItem(itemName)
+    if itemDef and itemDef.cost then
+        local refundAmount = math.floor(itemDef.cost * 0.5)
+        local newBalance = PlayerProgress.AddMoney(player, refundAmount)
+        print(player.Name .. " deleted " .. itemName .. " and received " .. refundAmount .. "💵 refund - New balance: " .. newBalance)
+    else
+        print(player.Name .. " deleted " .. itemName)
+    end
+    
     -- Save after deleting
     savePlayerData(player)
-    
-    print(player.Name .. " deleted " .. itemName)
 end)
 
 -- Handle get inventory request
@@ -654,6 +744,48 @@ getPlotRemote.OnServerInvoke = function(player)
     
     local plotInfo = getPlotInfo(plotId)
     return plotInfo
+end
+
+-- Handle get money request
+getMoneyRemote.OnServerInvoke = function(player)
+    local progress = PlayerProgress.GetPlayerProgress(player)
+    return progress.money
+end
+
+-- Handle get reputation request
+getReputationRemote.OnServerInvoke = function(player)
+    local progress = PlayerProgress.GetPlayerProgress(player)
+    return progress.npcReputation
+end
+
+-- Handle get placed items request
+getPlacedItemsRemote.OnServerInvoke = function(player)
+    local data = playerData[player]
+    if not data then return {} end
+    
+    local placedItemsList = {}
+    for _, item in ipairs(data.placedItems) do
+        if item and item.Parent then
+            table.insert(placedItemsList, {
+                name = item:GetAttribute("ItemName"),
+                position = item:GetPivot().Position,
+                scaleFactor = item:GetAttribute("ScaleFactor") or 1
+            })
+        end
+    end
+    
+    return placedItemsList
+end
+
+-- Handle get town prestige request
+getTownPrestigeRemote.OnServerInvoke = function(player)
+    local progress = PlayerProgress.GetPlayerProgress(player)
+    return {
+        stage = progress.townPrestige.stage,
+        contributions = progress.townPrestige.contributions or 0,
+        currentItemsPlaced = #(playerData[player] and playerData[player].placedItems or {}),
+        maxItemsAllowed = MAX_ITEMS_PER_PLOT
+    }
 end
 
 -- Protect all plots at startup
