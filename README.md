@@ -3,7 +3,7 @@
 A **factory/tycoon game on Roblox** where players build factories on their personal plot to produce, refine, and sell resources to city NPCs.
 
 ## 🎮 Core Concept
-
+s
 - **Personal Plot:** Each player has a grid-based space to build their own factory
 - **Three Producstion Lines:** Wood (🪵 Mira), Stone (🏗️ Bront), Iron (⚒️ Elrik)
 - **Physiscal Items:** Goods that flow on conveyors from machine to machine
