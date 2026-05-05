@@ -77,3 +77,6 @@ Personal project - All rights reserved
 ---
 
 **Made with ❤️ using Rojo + Luau**
+
+# ?? Git Configuration Setup
+SSH key properly configured with GitHub.
