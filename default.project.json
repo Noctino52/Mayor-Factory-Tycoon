@@ -25,13 +25,14 @@
     "ReplicatedStorage": {
       "$className": "ReplicatedStorage",
       "Shared": {
-        "$path": "src/ReplicatedStorage/Shared",
+        "$className": "Folder",
+        "Definitions": {"$path": "src/ReplicatedStorage/Shared/Definitions.luau"},
         "ItemTemplates": {
           "$className": "Folder",
           "RubiksCube": {"$path": "src/ReplicatedStorage/Shared/ItemTemplates/RubiksCube.rbxm"},
           "TreeFarm": {"$path": "src/ReplicatedStorage/Shared/ItemTemplates/TreeFarm.rbxm"},
-          "MineEntrace": {"$path": "src/ReplicatedStorage/Shared/ItemTemplates/MineEntrace.rbxm"},
-          "Sawmill": {"$path": "src/ReplicatedStorage/Shared/ItemTemplates/Sawmill.rbxm"}
+          "MineEntrance": {"$path": "src/ReplicatedStorage/Shared/ItemTemplates/MineEntrace.rbxm"},
+          "Sawmill": {"$path": "src/ReplicatedStorage/Shared/ItemTemplates/Sawmill.rbxmx"}
         }
       }
     },
@@ -39,6 +40,11 @@
     "ServerScriptService": {
       "$className": "ServerScriptService",
       "$path": "src/ServerScriptService"
+    },
+
+    "StarterGui": {
+      "$className": "StarterGui",
+      "$path": "src/StarterGui"
     },
 
     "StarterPlayer": {

@@ -68,7 +68,16 @@ local ITEMS = {
 		isProduction = true,
 	},
 
-	-- Placeable Items (machines and transportation)
+	-- Placeable Items (machines, transportation, and decorations)
+	RubiksCube = {
+		name = "RubiksCube",
+		icon = "R",
+		category = "decoration",
+		cost = 10,
+		type = "decoration",
+		isMachine = false,
+		isProduction = false,
+	},
 	TreeFarm = {
 		name = "TreeFarm",
 		icon = "🌳",
@@ -94,33 +103,6 @@ local ITEMS = {
 		cost = 75,
 		type = "processor",
 		isMachine = true,
-		isProduction = false,
-	},
-	Conveyor = {
-		name = "Conveyor",
-		icon = "🔗",
-		category = "transport",
-		cost = 25,
-		type = "transport",
-		isMachine = false,
-		isProduction = false,
-	},
-	Splitter = {
-		name = "Splitter",
-		icon = "🔀",
-		category = "transport",
-		cost = 50,
-		type = "transport",
-		isMachine = false,
-		isProduction = false,
-	},
-	Merger = {
-		name = "Merger",
-		icon = "🔀",
-		category = "transport",
-		cost = 50,
-		type = "transport",
-		isMachine = false,
 		isProduction = false,
 	},
 }
@@ -307,6 +289,9 @@ end
 local function MakeReadOnly(tbl, tableName)
 	return setmetatable({}, {
 		__index = tbl,
+		__pairs = function()
+			return pairs(tbl)
+		end,
 		__newindex = function(t, k, v)
 			error(string.format("[Definitions] Cannot modify read-only table '%s'", tableName))
 		end,
@@ -351,6 +336,15 @@ end
 
 -- Run validation on load
 ValidateNoConflicts()
+
+-- ============================================================================
+-- Helper function to get all items
+-- ============================================================================
+local function GetAllItems()
+	return ITEMS
+end
+
+Definitions.GetAllItems = GetAllItems
 
 -- ============================================================================
 -- Export module

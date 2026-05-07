@@ -28,20 +28,27 @@ local function getGridUnitSize()
 end
 
 -- Get templates folder
-local templatesFolder = ReplicatedStorage:WaitForChild("ItemTemplates")
+local sharedFolder = ReplicatedStorage:WaitForChild("Shared")
+local templatesFolder = sharedFolder:WaitForChild("ItemTemplates")
 
--- Clean up all sounds from templates at startup
-task.spawn(function()
-    wait(0.5) -- Give time for templates to load
-    for _, template in ipairs(templatesFolder:GetChildren()) do
-        for _, sound in ipairs(template:GetDescendants()) do
-            if sound:IsA("Sound") then
-                sound:Destroy()
-            end
+-- Clean up all sounds from templates as early as possible.
+local function removeAllSounds(model)
+    for _, descendant in ipairs(model:GetDescendants()) do
+        if descendant:IsA("Sound") then
+            descendant:Destroy()
         end
     end
-    print("[InventoryManager] Removed sounds from all templates")
+end
+
+for _, template in ipairs(templatesFolder:GetChildren()) do
+    removeAllSounds(template)
+end
+templatesFolder.DescendantAdded:Connect(function(descendant)
+    if descendant:IsA("Sound") then
+        descendant:Destroy()
+    end
 end)
+print("[InventoryManager] Removed sounds from all templates")
 
 -- Create RemoteEvents
 local placeItemRemote = Instance.new("RemoteEvent")
@@ -78,6 +85,25 @@ local getTownPrestigeRemote = Instance.new("RemoteFunction")
 getTownPrestigeRemote.Name = "GetTownPrestige"
 getTownPrestigeRemote.Parent = ReplicatedStorage
 
+-- Create RemoteEvent for buying items from shop
+local buyItemRemote = Instance.new("RemoteEvent")
+buyItemRemote.Name = "BuyItem"
+buyItemRemote.Parent = ReplicatedStorage
+
+-- Create RemoteEvent for selling items back to shop
+local sellItemRemote = Instance.new("RemoteEvent")
+sellItemRemote.Name = "SellItem"
+sellItemRemote.Parent = ReplicatedStorage
+
+-- Create RemoteEvents for inventory/shop feedback
+local inventoryUpdatedRemote = Instance.new("RemoteEvent")
+inventoryUpdatedRemote.Name = "InventoryUpdated"
+inventoryUpdatedRemote.Parent = ReplicatedStorage
+
+local shopTransactionResultRemote = Instance.new("RemoteEvent")
+shopTransactionResultRemote.Name = "ShopTransactionResult"
+shopTransactionResultRemote.Parent = ReplicatedStorage
+
 -- Configuration Constants
 local MAX_ITEMS_PER_PLOT = 20
 
@@ -88,22 +114,138 @@ local playerData = {}
 local plotAssignments = {} -- {plotId = player.UserId}
 local playerPlots = {} -- {player.UserId = plotId}
 
--- Default inventory for new players
-local DEFAULT_INVENTORY = {
-    {itemName = "RubiksCube", count = 1},
-    {itemName = "TreeFarm", count = 5},
-    {itemName = "MineEntrance", count = 1},
-    {itemName = "Sawmill", count = 5}
-}
+-- Default inventory for new players.
+-- Prompt 4 shop flow starts empty: players buy placeable items instead of receiving them for free.
+local DEFAULT_INVENTORY = {}
 
--- Function to remove all sounds from a model
-local function removeAllSounds(model)
-    for _, descendant in ipairs(model:GetDescendants()) do
-        if descendant:IsA("Sound") then
-            descendant.Parent = nil
+local function getTemplateAlias(itemName)
+    if itemName == "MineEntrance" then
+        return templatesFolder:FindFirstChild("MineEntrace")
+    end
+
+    return nil
+end
+
+local function ensureItemTemplate(itemName)
+    local template = templatesFolder:FindFirstChild(itemName)
+    if template then
+        return template
+    end
+
+    local alias = getTemplateAlias(itemName)
+    if alias then
+        alias.Name = itemName
+        return alias
+    end
+
+    return nil
+end
+
+local function ensurePurchasableTemplates()
+    for itemName, itemDef in pairs(Definitions.GetAllItems()) do
+        if itemDef.cost and not itemDef.isProduction then
+            ensureItemTemplate(itemName)
         end
     end
 end
+
+local function notifyInventoryUpdated(player)
+    inventoryUpdatedRemote:FireClient(player)
+end
+
+local function sendShopResult(player, success, action, itemName, message, balance)
+    shopTransactionResultRemote:FireClient(player, {
+        success = success,
+        action = action,
+        itemName = itemName,
+        message = message,
+        money = balance,
+    })
+end
+
+local function isValidInventoryItem(itemName)
+    local itemDef = Definitions.GetItem(itemName)
+    return itemDef ~= nil and itemDef.isProduction ~= true
+end
+
+local function normalizeInventory(inventory)
+    local totals = {}
+    local order = {}
+
+    for _, existingItem in ipairs(inventory or {}) do
+        local itemName = existingItem.itemName
+        local count = tonumber(existingItem.count) or 0
+
+        if itemName and isValidInventoryItem(itemName) and count > 0 then
+            if not totals[itemName] then
+                totals[itemName] = 0
+                table.insert(order, itemName)
+            end
+
+            totals[itemName] = totals[itemName] + count
+        elseif itemName then
+            print("[INVENTORY] Removed invalid inventory entry: " .. tostring(itemName))
+        end
+    end
+
+    local normalized = {}
+    for _, itemName in ipairs(order) do
+        table.insert(normalized, {
+            itemName = itemName,
+            count = totals[itemName],
+        })
+    end
+
+    return normalized
+end
+
+local function addItemToInventory(player, itemName, count)
+    local data = playerData[player]
+    if not data or not isValidInventoryItem(itemName) then
+        return false, 0
+    end
+
+    data.inventory = normalizeInventory(data.inventory)
+    count = count or 1
+
+    for _, invItem in ipairs(data.inventory) do
+        if invItem.itemName == itemName then
+            invItem.count = invItem.count + count
+            return true, invItem.count
+        end
+    end
+
+    table.insert(data.inventory, {itemName = itemName, count = count})
+    return true, count
+end
+
+local function removeItemFromInventory(player, itemName, count)
+    local data = playerData[player]
+    if not data then
+        return false, 0
+    end
+
+    data.inventory = normalizeInventory(data.inventory)
+    count = count or 1
+
+    for i, invItem in ipairs(data.inventory) do
+        if invItem.itemName == itemName and invItem.count >= count then
+            invItem.count = invItem.count - count
+            local remaining = invItem.count
+
+            if invItem.count <= 0 then
+                table.remove(data.inventory, i)
+                remaining = 0
+            end
+
+            return true, remaining
+        end
+    end
+
+    return false, 0
+end
+
+ensurePurchasableTemplates()
 
 -- Function to get plot by ID
 local function getPlotById(plotId)
@@ -309,6 +451,7 @@ end
 local function savePlayerData(player)
     local data = playerData[player]
     if not data then return end
+    data.inventory = normalizeInventory(data.inventory)
     
     local plotId = playerPlots[player.UserId]
     if not plotId then return end
@@ -371,43 +514,7 @@ end
 
 -- Function to migrate old inventory to new one (adds missing items and removes invalid ones)
 local function migrateInventory(oldInventory)
-    if not oldInventory then return table.clone(DEFAULT_INVENTORY) end
-    
-    local migratedInv = {}
-    local validItemNames = {}
-    
-    -- Build set of valid item names from DEFAULT_INVENTORY
-    for _, defaultItem in ipairs(DEFAULT_INVENTORY) do
-        validItemNames[defaultItem.itemName] = true
-    end
-    
-    -- Keep only valid items from old inventory
-    for _, existingItem in ipairs(oldInventory) do
-        if validItemNames[existingItem.itemName] then
-            table.insert(migratedInv, existingItem)
-        else
-            print("[MIGRATED] Rimosso item invalido: " .. existingItem.itemName)
-        end
-    end
-    
-    -- Add missing items from DEFAULT_INVENTORY
-    for _, defaultItem in ipairs(DEFAULT_INVENTORY) do
-        local found = false
-        for _, existingItem in ipairs(migratedInv) do
-            if existingItem.itemName == defaultItem.itemName then
-                found = true
-                break
-            end
-        end
-        
-        -- If item not found, add it with DEFAULT count
-        if not found then
-            table.insert(migratedInv, {itemName = defaultItem.itemName, count = defaultItem.count})
-            print("[MIGRATED] Aggiunto nuovo item: " .. defaultItem.itemName .. " (count: " .. defaultItem.count .. ")")
-        end
-    end
-    
-    return migratedInv
+    return normalizeInventory(oldInventory or DEFAULT_INVENTORY)
 end
 
 -- Function to spawn saved items
@@ -416,7 +523,7 @@ local function spawnSavedItems(player, itemsData, plotId)
     if not data then return end
     
     for _, itemInfo in ipairs(itemsData) do
-        local template = templatesFolder:FindFirstChild(itemInfo.itemName)
+        local template = ensureItemTemplate(itemInfo.itemName)
         if template then
             local newItem = template:Clone()
             
@@ -458,7 +565,7 @@ end
 
 -- Function to get item template
 local function getItemTemplate(itemName)
-    return templatesFolder:FindFirstChild(itemName)
+    return ensureItemTemplate(itemName)
 end
 
 -- Function to get item bounding box size
@@ -472,7 +579,6 @@ local function onPlayerAdded(player)
     -- Initialize player progress (money, reputation, etc.)
     local progress = PlayerProgress.GetPlayerProgress(player)
     print("[PlayerProgress] Loaded progress for " .. player.Name .. " - Money: " .. progress.money)
-    
     -- Try to load saved data
     local savedData = loadPlayerData(player)
     
@@ -534,6 +640,7 @@ local function onPlayerAdded(player)
     end
     
     print("Inventory initialized for " .. player.Name .. " on Plot " .. plotId)
+    notifyInventoryUpdated(player)
 end
 
 -- Handle player leaving
@@ -562,6 +669,7 @@ end
 placeItemRemote.OnServerEvent:Connect(function(player, itemName, position, scaleFactor, gridUnit, cellsX, cellsZ)
     local data = playerData[player]
     if not data then return end
+    data.inventory = normalizeInventory(data.inventory)
     
     -- Get player's assigned plot
     local plotId = playerPlots[player.UserId]
@@ -573,17 +681,6 @@ placeItemRemote.OnServerEvent:Connect(function(player, itemName, position, scale
     if #data.placedItems >= MAX_ITEMS_PER_PLOT then
         print(player.Name .. " tried to place " .. itemName .. " but has reached max items limit (" .. MAX_ITEMS_PER_PLOT .. ")")
         return false, "Max items placed: " .. MAX_ITEMS_PER_PLOT
-    end
-    
-    -- Check if this is a placeable item with cost
-    local itemDef = Definitions.GetItem(itemName)
-    if itemDef and itemDef.cost then
-        -- Check if player has enough money
-        local progress = PlayerProgress.GetPlayerProgress(player)
-        if progress.money < itemDef.cost then
-            print(player.Name .. " tried to place " .. itemName .. " but has insufficient funds")
-            return false, "Insufficient funds"
-        end
     end
     
     -- Check if player has this item
@@ -602,7 +699,7 @@ placeItemRemote.OnServerEvent:Connect(function(player, itemName, position, scale
     end
     
     -- Get template and check size
-    local template = templatesFolder:FindFirstChild(itemName)
+    local template = ensureItemTemplate(itemName)
     if not template then
         return false, "Item template not found"
     end
@@ -656,14 +753,9 @@ placeItemRemote.OnServerEvent:Connect(function(player, itemName, position, scale
     
     table.insert(data.placedItems, newItem)
     
-    -- Deduct money if this item has a cost
-    if itemDef and itemDef.cost then
-        local newBalance = PlayerProgress.AddMoney(player, -itemDef.cost)
-        print(player.Name .. " placed " .. itemName .. " for " .. itemDef.cost .. "💵 - New balance: " .. newBalance)
-    end
-    
     -- Save after placing
     savePlayerData(player)
+    notifyInventoryUpdated(player)
     
     print(player.Name .. " placed " .. itemName .. " at " .. tostring(position) .. " on Plot " .. plotId)
     return true
@@ -673,6 +765,7 @@ end)
 deleteItemRemote.OnServerEvent:Connect(function(player, item)
     local data = playerData[player]
     if not data then return end
+    data.inventory = normalizeInventory(data.inventory)
     
     -- Check if item exists and belongs to player
     if not item or not item.Parent then return end
@@ -716,24 +809,27 @@ deleteItemRemote.OnServerEvent:Connect(function(player, item)
         table.insert(data.inventory, {itemName = itemName, count = 1})
     end
     
-    -- Refund 50% of the cost if item has a cost
-    local itemDef = Definitions.GetItem(itemName)
-    if itemDef and itemDef.cost then
-        local refundAmount = math.floor(itemDef.cost * 0.5)
-        local newBalance = PlayerProgress.AddMoney(player, refundAmount)
-        print(player.Name .. " deleted " .. itemName .. " and received " .. refundAmount .. "💵 refund - New balance: " .. newBalance)
-    else
-        print(player.Name .. " deleted " .. itemName)
-    end
+    -- No refund - items are free to delete
+    print(player.Name .. " deleted " .. itemName .. " and removed it from world")
     
     -- Save after deleting
     savePlayerData(player)
+    notifyInventoryUpdated(player)
 end)
 
 -- Handle get inventory request
 getInventoryRemote.OnServerInvoke = function(player)
     local data = playerData[player]
+    if not data then
+        local startTime = tick()
+        while not data and tick() - startTime < 5 do
+            task.wait(0.1)
+            data = playerData[player]
+        end
+    end
+
     if not data then return {} end
+    data.inventory = normalizeInventory(data.inventory)
     return data.inventory
 end
 
@@ -787,6 +883,94 @@ getTownPrestigeRemote.OnServerInvoke = function(player)
         maxItemsAllowed = MAX_ITEMS_PER_PLOT
     }
 end
+
+-- Handle buy item request (Shop system)
+buyItemRemote.OnServerEvent:Connect(function(player, itemName)
+    if not playerData[player] then return end
+    
+    -- Get item definition
+    local itemDef = Definitions.GetItem(itemName)
+    if not itemDef then
+        print(player.Name .. " tried to buy invalid item: " .. itemName)
+        sendShopResult(player, false, "buy", itemName, "Invalid item.", nil)
+        return
+    end
+    
+    -- Check if item is purchasable (has a cost)
+    if not itemDef.cost or itemDef.isProduction then
+        print(player.Name .. " tried to buy non-purchasable item: " .. itemName)
+        sendShopResult(player, false, "buy", itemName, "This item cannot be bought.", nil)
+        return
+    end
+    
+    -- Get player's current money
+    local progress = PlayerProgress.GetPlayerProgress(player)
+    if progress.money < itemDef.cost then
+        print(player.Name .. " tried to buy " .. itemName .. " but doesn't have enough money (has " .. progress.money .. ", needs " .. itemDef.cost .. ")")
+        sendShopResult(player, false, "buy", itemName, "Not enough money.", progress.money)
+        return
+    end
+    
+    -- Deduct money from player
+    local newBalance = PlayerProgress.AddMoney(player, -itemDef.cost)
+    if not newBalance then
+        sendShopResult(player, false, "buy", itemName, "Not enough money.", progress.money)
+        return
+    end
+    print(player.Name .. " bought " .. itemName .. " for " .. itemDef.cost .. "💵 - New balance: " .. newBalance)
+    
+    -- Add item to inventory
+    local added = addItemToInventory(player, itemName, 1)
+    if not added then
+        PlayerProgress.AddMoney(player, itemDef.cost)
+        sendShopResult(player, false, "buy", itemName, "Could not add item to inventory.", progress.money)
+        return
+    end
+    
+    -- Save after purchase
+    savePlayerData(player)
+    notifyInventoryUpdated(player)
+    sendShopResult(player, true, "buy", itemName, "Purchased " .. itemName .. ".", newBalance)
+end)
+
+-- Handle sell item request (Shop system)
+sellItemRemote.OnServerEvent:Connect(function(player, itemName)
+    if not playerData[player] then return end
+    
+    -- Get item definition
+    local itemDef = Definitions.GetItem(itemName)
+    if not itemDef then
+        print(player.Name .. " tried to sell invalid item: " .. itemName)
+        sendShopResult(player, false, "sell", itemName, "Invalid item.", nil)
+        return
+    end
+    
+    -- Check if item has a cost (can be sold)
+    if not itemDef.cost then
+        print(player.Name .. " tried to sell non-sellable item: " .. itemName)
+        sendShopResult(player, false, "sell", itemName, "This item cannot be sold.", nil)
+        return
+    end
+    
+    -- Check if player has this item in inventory
+    local removed = removeItemFromInventory(player, itemName, 1)
+    if not removed then
+        print(player.Name .. " tried to sell " .. itemName .. " but doesn't have it")
+        local progress = PlayerProgress.GetPlayerProgress(player)
+        sendShopResult(player, false, "sell", itemName, "You do not own this item.", progress.money)
+        return
+    end
+    
+    -- Give half price to player when selling from inventory.
+    local saleValue = math.floor(itemDef.cost * 0.5)
+    local newBalance = PlayerProgress.AddMoney(player, saleValue)
+    print(player.Name .. " sold " .. itemName .. " for " .. saleValue .. "💵 - New balance: " .. newBalance)
+    
+    -- Save after selling
+    savePlayerData(player)
+    notifyInventoryUpdated(player)
+    sendShopResult(player, true, "sell", itemName, "Sold " .. itemName .. " for " .. saleValue .. ".", newBalance)
+end)
 
 -- Protect all plots at startup
 local function protectAllPlots()

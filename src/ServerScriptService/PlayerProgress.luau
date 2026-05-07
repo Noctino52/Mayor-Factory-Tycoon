@@ -54,7 +54,7 @@ end
 local function GetDefaultProgress()
 	return {
 		version = DATASTORE_VERSION,
-		money = 1000,
+		money = 10000, -- 10000 for testing
 		npcReputation = {
 			Mira = 0,
 			Bront = 0,
@@ -423,6 +423,49 @@ end
 ]]
 function PlayerProgress.GetAllPlayers()
 	return playerDataCache
+end
+
+--[[
+	AdminAddMoneyByUserId(userId: number, amount: number) -> (boolean, string)
+	Admin function to add money to a player by userId (works even if offline).
+	Returns (success, message)
+]]
+function PlayerProgress.AdminAddMoneyByUserId(userId, amount)
+	if type(userId) ~= "number" or type(amount) ~= "number" then
+		return false, "UserId and amount must be numbers"
+	end
+
+	-- Try to modify in-memory cache first if player is online
+	if playerDataCache[userId] then
+		playerDataCache[userId].money = playerDataCache[userId].money + amount
+		SavePlayerDataToStore(userId, playerDataCache[userId])
+		return true, "Added " .. amount .. " money to player " .. userId .. " (online). New balance: " .. playerDataCache[userId].money
+	end
+
+	-- Try to load and modify from DataStore if offline
+	if not dataStoreReady or not playerDataStore then
+		return false, "DataStore not available"
+	end
+
+	local key = "PlayerData_" .. userId
+	local success, data = pcall(function()
+		return playerDataStore:GetAsync(key)
+	end)
+
+	if not success or not data then
+		return false, "Could not load player data for userId " .. userId
+	end
+
+	-- Add money
+	data.money = (data.money or 0) + amount
+
+	-- Save back
+	local saveSuccess, saveErr = SavePlayerDataToStore(userId, data)
+	if saveSuccess then
+		return true, "Added " .. amount .. " money to player " .. userId .. " (offline). New balance: " .. data.money
+	else
+		return false, "Failed to save: " .. (saveErr or "Unknown error")
+	end
 end
 
 -- ============================================================================

@@ -9,12 +9,16 @@ local RunService = game:GetService("RunService")
 
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
+local sharedFolder = ReplicatedStorage:WaitForChild("Shared")
+local Definitions = require(sharedFolder:WaitForChild("Definitions"))
+local templatesFolder = sharedFolder:WaitForChild("ItemTemplates")
 
 -- Wait for remotes
 local placeItemRemote = ReplicatedStorage:WaitForChild("PlaceItem")
 local getInventoryRemote = ReplicatedStorage:WaitForChild("GetInventory")
 local deleteItemRemote = ReplicatedStorage:WaitForChild("DeleteItem")
 local getPlotRemote = ReplicatedStorage:WaitForChild("GetPlayerPlot")
+local inventoryUpdatedRemote = ReplicatedStorage:WaitForChild("InventoryUpdated")
 
 -- Configuration
 local GHOST_TRANSPARENCY = 0.6
@@ -25,7 +29,7 @@ local ITEM_ICONS = {
     RubiksCube = "🎲",
     TreeFarm = "🌳",
     MineEntrance = "⛏️",
-    Sawmill = "🏭"
+    Sawmill = "🏭",
 }
 
 -- Get grid unit size (now fixed)
@@ -35,7 +39,12 @@ end
 
 -- Get icon for item
 local function getItemIcon(itemName)
-    return ITEM_ICONS[itemName] or "❓"
+    local itemDef = Definitions.GetItem(itemName)
+    if itemDef and itemDef.icon then
+        return itemDef.icon
+    end
+
+    return ITEM_ICONS[itemName] or "?"
 end
 
 -- State
@@ -285,6 +294,11 @@ local function removeSelectionBox()
 end
 
 -- Create Inventory UI
+local existingInventoryGui = playerGui:FindFirstChild("InventoryUI")
+if existingInventoryGui then
+    existingInventoryGui:Destroy()
+end
+
 local screenGui = Instance.new("ScreenGui")
 screenGui.Name = "InventoryUI"
 screenGui.ResetOnSpawn = false
@@ -348,7 +362,7 @@ deleteCorner.Parent = deleteButton
 local trashIcon = Instance.new("TextLabel")
 trashIcon.Size = UDim2.new(1, 0, 1, 0)
 trashIcon.BackgroundTransparency = 1
-trashIcon.Text = "???"
+trashIcon.Text = "🗑️"
 trashIcon.TextSize = 28
 trashIcon.Parent = deleteButton
 
@@ -396,13 +410,11 @@ local function createGhostItem(itemName)
         ghostItem = nil
     end
     
-    local template = ReplicatedStorage:FindFirstChild("ItemTemplates")
-    if not template then return nil end
-    
-    local itemTemplate = template:FindFirstChild(itemName)
+    local itemTemplate = templatesFolder:FindFirstChild(itemName)
     if not itemTemplate then return nil end
-    
+
     local newGhost = itemTemplate:Clone()
+
     newGhost.Name = "GhostItem"
     
     -- Calculate and apply scaling to fit in ONE cell
@@ -447,20 +459,60 @@ local function isWithinPlotBounds(position, plotInfo)
            position.Z <= plotInfo.position.Z + halfPlotSize.Z
 end
 
+local function normalizeInventoryList(rawInventory)
+    local totals = {}
+    local order = {}
+
+    for _, item in ipairs(rawInventory or {}) do
+        local itemName = item.itemName
+        local count = tonumber(item.count) or 0
+
+        if itemName and count > 0 then
+            if not totals[itemName] then
+                totals[itemName] = 0
+                table.insert(order, itemName)
+            end
+
+            totals[itemName] = totals[itemName] + count
+        end
+    end
+
+    local normalized = {}
+    for _, itemName in ipairs(order) do
+        table.insert(normalized, {
+            itemName = itemName,
+            count = totals[itemName],
+        })
+    end
+
+    return normalized
+end
+
+local inventoryRefreshToken = 0
+
 -- Function to refresh inventory UI
 local function refreshInventoryUI()
+    inventoryRefreshToken = inventoryRefreshToken + 1
+    local thisRefreshToken = inventoryRefreshToken
+
+    local success, result = pcall(function()
+        return getInventoryRemote:InvokeServer()
+    end)
+
+    if thisRefreshToken ~= inventoryRefreshToken then
+        return
+    end
+
     for _, child in ipairs(itemsContainer:GetChildren()) do
         if child:IsA("ImageButton") then
             child:Destroy()
         end
     end
     
-    local success, result = pcall(function()
-        return getInventoryRemote:InvokeServer()
-    end)
-    
     if success and result then
-        inventory = result
+        inventory = normalizeInventoryList(result)
+    else
+        inventory = {}
     end
     
     for i, item in ipairs(inventory) do
@@ -826,6 +878,12 @@ RunService.RenderStepped:Connect(function()
     updateGridIfNeeded()
     updateGhostPosition()
     updateDeletionHover()
+end)
+
+-- Listen for inventory updates (e.g., when shop closes after purchase)
+inventoryUpdatedRemote.OnClientEvent:Connect(function()
+    task.wait(0.2) -- Small delay to ensure server data is updated
+    refreshInventoryUI()
 end)
 
 -- Initial inventory refresh
