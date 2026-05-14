@@ -23,6 +23,7 @@ local Definitions = require(game.ReplicatedStorage.Shared.Definitions)
 local DATASTORE_NAME = "MayorsFactoryTycoon_PlayerData"
 local DATASTORE_VERSION = 2
 local AUTO_SAVE_INTERVAL = 30 -- seconds
+local SAVE_DEBOUNCE_INTERVAL = 8 -- seconds
 local MAX_RETRIES = 3
 
 -- ============================================================================
@@ -30,6 +31,9 @@ local MAX_RETRIES = 3
 -- ============================================================================
 
 local playerDataCache = {} -- playerId -> progressData
+local dirtyPlayerData = {} -- playerId -> true when cached data needs persistence
+local saveScheduled = {} -- playerId -> true when a deferred save is already queued
+local saveInProgress = {} -- playerId -> true while a DataStore save is running
 local playerDataStore = nil
 local dataStoreReady = false
 
@@ -141,6 +145,49 @@ local function SavePlayerDataToStore(userId, progressData)
 	return false, "DataStore save failed"
 end
 
+local SchedulePlayerSave
+
+local function SaveCachedPlayerData(userId)
+	while saveInProgress[userId] do
+		task.wait(0.1)
+	end
+
+	local progressData = playerDataCache[userId]
+	if not progressData then
+		return true, nil
+	end
+
+	dirtyPlayerData[userId] = nil
+	saveInProgress[userId] = true
+
+	local success, err = SavePlayerDataToStore(userId, progressData)
+
+	saveInProgress[userId] = nil
+	if not success and playerDataCache[userId] then
+		SchedulePlayerSave(userId, SAVE_DEBOUNCE_INTERVAL)
+	end
+
+	return success, err
+end
+
+function SchedulePlayerSave(userId, delaySeconds)
+	dirtyPlayerData[userId] = true
+	if saveScheduled[userId] then
+		return true, nil
+	end
+
+	saveScheduled[userId] = true
+	task.delay(delaySeconds or SAVE_DEBOUNCE_INTERVAL, function()
+		saveScheduled[userId] = nil
+
+		if playerDataCache[userId] then
+			SaveCachedPlayerData(userId)
+		end
+	end)
+
+	return true, nil
+end
+
 -- ============================================================================
 -- Public API
 -- ============================================================================
@@ -212,8 +259,17 @@ function PlayerProgress.SavePlayerProgress(player, progressData)
 	-- Update cache
 	playerDataCache[userId] = progressData
 
-	-- Save to DataStore
-	return SavePlayerDataToStore(userId, progressData)
+	return SchedulePlayerSave(userId)
+end
+
+function PlayerProgress.FlushPlayerProgress(player)
+	if not player then
+		error("[PlayerProgress] Player is required")
+	end
+
+	local userId = player.UserId
+	saveScheduled[userId] = nil
+	return SaveCachedPlayerData(userId)
 end
 
 --[[
@@ -413,7 +469,11 @@ end
 ]]
 function PlayerProgress.ClearPlayerData(player)
 	if player then
+		PlayerProgress.FlushPlayerProgress(player)
 		playerDataCache[player.UserId] = nil
+		dirtyPlayerData[player.UserId] = nil
+		saveScheduled[player.UserId] = nil
+		saveInProgress[player.UserId] = nil
 	end
 end
 
@@ -481,7 +541,11 @@ task.spawn(function()
 
 		for userId, progressData in pairs(playerDataCache) do
 			task.spawn(function()
-				SavePlayerDataToStore(userId, progressData)
+				if dirtyPlayerData[userId] then
+					SaveCachedPlayerData(userId)
+				else
+					SavePlayerDataToStore(userId, progressData)
+				end
 			end)
 		end
 	end

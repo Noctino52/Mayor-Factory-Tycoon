@@ -26,6 +26,7 @@ local activeItems = {}
 local dependencies = nil
 local initialized = false
 local machineInputHandler = nil
+local sellHandler = nil
 
 local productionItemsFolder = workspace:FindFirstChild("ProductionItems")
 if not productionItemsFolder then
@@ -240,7 +241,7 @@ local function removeActiveItem(activeItem)
     end
 end
 
-local function destroyProductionItem(activeItem, animate)
+local function destroyProductionItem(activeItem, animate, holdPosition)
     removeActiveItem(activeItem)
 
     local model = activeItem.model
@@ -254,11 +255,15 @@ local function destroyProductionItem(activeItem, animate)
     end
 
     if model:IsA("BasePart") then
-        local tween = TweenService:Create(model, TweenInfo.new(0.25, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
-            CFrame = model.CFrame * CFrame.new(0, 1.5, 0),
+        local tweenGoals = {
             Size = Vector3.new(0.05, 0.05, 0.05),
             Transparency = 1,
-        })
+        }
+        if not holdPosition then
+            tweenGoals.CFrame = model.CFrame * CFrame.new(0, 1.5, 0)
+        end
+
+        local tween = TweenService:Create(model, TweenInfo.new(0.25, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), tweenGoals)
 
         tween.Completed:Connect(function()
             if model and model.Parent then
@@ -270,14 +275,18 @@ local function destroyProductionItem(activeItem, animate)
         return
     end
 
-    local pivotValue = Instance.new("CFrameValue")
-    pivotValue.Value = model:GetPivot()
+    local pivotValue = nil
+    local pivotConnection = nil
+    if not holdPosition then
+        pivotValue = Instance.new("CFrameValue")
+        pivotValue.Value = model:GetPivot()
 
-    local pivotConnection = pivotValue:GetPropertyChangedSignal("Value"):Connect(function()
-        if model and model.Parent then
-            model:PivotTo(pivotValue.Value)
-        end
-    end)
+        pivotConnection = pivotValue:GetPropertyChangedSignal("Value"):Connect(function()
+            if model and model.Parent then
+                model:PivotTo(pivotValue.Value)
+            end
+        end)
+    end
 
     for _, descendant in ipairs(model:GetDescendants()) do
         if descendant:IsA("BasePart") then
@@ -287,12 +296,20 @@ local function destroyProductionItem(activeItem, animate)
         end
     end
 
-    local tween = TweenService:Create(pivotValue, TweenInfo.new(0.25, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+    local tweenTarget = holdPosition and Instance.new("NumberValue") or pivotValue
+    if holdPosition then
+        tweenTarget.Value = 0
+    end
+
+    local tweenGoals = holdPosition and { Value = 1 } or {
         Value = model:GetPivot() * CFrame.new(0, 1.5, 0),
-    })
+    }
+    local tween = TweenService:Create(tweenTarget, TweenInfo.new(0.25, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), tweenGoals)
     tween.Completed:Connect(function()
-        pivotConnection:Disconnect()
-        pivotValue:Destroy()
+        if pivotConnection then
+            pivotConnection:Disconnect()
+        end
+        tweenTarget:Destroy()
         if model and model.Parent then
             model:Destroy()
         end
@@ -301,13 +318,114 @@ local function destroyProductionItem(activeItem, animate)
     tween:Play()
 end
 
-local function sellItem(activeItem)
-    local itemDef = Definitions.GetItem(activeItem.itemName)
-    if dependencies and dependencies.addMoney and itemDef and itemDef.value then
-        dependencies.addMoney(activeItem.player, itemDef.value)
+local function getSellZoneSalePosition(activeItem, cellInfo)
+    local basePosition = gridToWorldPosition(activeItem.player, activeItem.cellX, activeItem.cellZ)
+    if not basePosition then
+        return nil
     end
 
-    destroyProductionItem(activeItem, false)
+    local zone = cellInfo and cellInfo.instance
+    if not zone or not zone.Parent then
+        return basePosition
+    end
+
+    local zoneCellX = zone:GetAttribute("CellX")
+    local zoneCellZ = zone:GetAttribute("CellZ")
+    if zoneCellX == nil or zoneCellZ == nil then
+        local zonePosition = zone:IsA("Model") and zone:GetPivot().Position or zone.Position
+        return Vector3.new(zonePosition.X, basePosition.Y, zonePosition.Z)
+    end
+
+    local cellsX = zone:GetAttribute("CellsX") or 1
+    local cellsZ = zone:GetAttribute("CellsZ") or 1
+    local centerCellX = zoneCellX + (cellsX - 1) / 2
+    local centerCellZ = zoneCellZ + (cellsZ - 1) / 2
+    local centerPosition = gridToWorldPosition(activeItem.player, centerCellX, centerCellZ)
+
+    return centerPosition or basePosition
+end
+
+local function fadeProductionItemInPlace(activeItem, position)
+    removeActiveItem(activeItem)
+
+    local model = activeItem.model
+    if not model or not model.Parent then
+        return
+    end
+
+    if position then
+        setItemCFrame(model, CFrame.new(position))
+    end
+
+    local lockedCFrame = getItemCFrame(model)
+    local holdConnection = RunService.Heartbeat:Connect(function()
+        if model and model.Parent then
+            setItemCFrame(model, lockedCFrame)
+        end
+    end)
+
+    local tweens = {}
+    local parts = {}
+    if model:IsA("BasePart") then
+        table.insert(parts, model)
+    else
+        for _, descendant in ipairs(model:GetDescendants()) do
+            if descendant:IsA("BasePart") then
+                table.insert(parts, descendant)
+            end
+        end
+    end
+
+    for _, part in ipairs(parts) do
+        part.Anchored = true
+        part.AssemblyLinearVelocity = Vector3.zero
+        part.AssemblyAngularVelocity = Vector3.zero
+        table.insert(tweens, TweenService:Create(part, TweenInfo.new(0.25, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+            Transparency = 1,
+        }))
+    end
+
+    local remaining = #tweens
+    local function finish()
+        if holdConnection then
+            holdConnection:Disconnect()
+            holdConnection = nil
+        end
+
+        if model and model.Parent then
+            model:Destroy()
+        end
+    end
+
+    if remaining == 0 then
+        finish()
+        return
+    end
+
+    for _, tween in ipairs(tweens) do
+        tween.Completed:Connect(function()
+            remaining -= 1
+            if remaining <= 0 then
+                finish()
+            end
+        end)
+        tween:Play()
+    end
+end
+
+local function sellItem(activeItem, cellInfo, sellCellX, sellCellZ, fadePosition)
+    local salePosition = fadePosition or activeItem.salePosition or getSellZoneSalePosition(activeItem, cellInfo)
+    local saleCellX = sellCellX or activeItem.cellX
+    local saleCellZ = sellCellZ or activeItem.cellZ
+
+    if not sellHandler then
+        fadeProductionItemInPlace(activeItem, salePosition)
+        return false
+    end
+
+    local sold = sellHandler(activeItem.player, activeItem.itemName, saleCellX, saleCellZ)
+    fadeProductionItemInPlace(activeItem, salePosition)
+    return sold == true
 end
 
 local function feedMachine(cellInfo, activeItem)
@@ -355,7 +473,7 @@ local function handleArrival(activeItem)
     elseif cellInfo.type == "machine" then
         feedMachine(cellInfo, activeItem)
     elseif cellInfo.type == "sell_zone" then
-        sellItem(activeItem)
+        sellItem(activeItem, cellInfo)
     elseif cellInfo.type ~= "conveyor" then
         destroyProductionItem(activeItem, true)
     else
@@ -389,13 +507,24 @@ local function tryStartNextSegment(activeItem)
     local nextCellKey = cellKey(nextCellX, nextCellZ)
     local isLoopingToVisitedConveyor = nextCell and nextCell.type == "conveyor" and activeItem.visitedCells[nextCellKey] == true
 
+    local startPosition = gridToWorldPosition(activeItem.player, activeItem.cellX, activeItem.cellZ)
+    if not startPosition then
+        destroyProductionItem(activeItem, true)
+        return
+    end
+
+    activeItem.salePosition = nil
+    if nextCell and nextCell.type == "sell_zone" then
+        sellItem(activeItem, nextCell, nextCellX, nextCellZ, startPosition)
+        return
+    end
+
     if nextCell and not canReserveCell(activeItem.player, nextCellX, nextCellZ) then
         return
     end
 
-    local startPosition = gridToWorldPosition(activeItem.player, activeItem.cellX, activeItem.cellZ)
     local targetPosition = gridToWorldPosition(activeItem.player, nextCellX, nextCellZ)
-    if not startPosition or not targetPosition then
+    if not targetPosition then
         destroyProductionItem(activeItem, true)
         return
     end
@@ -516,6 +645,10 @@ end
 
 function ConveyorSystem.SetMachineInputHandler(handler)
     machineInputHandler = handler
+end
+
+function ConveyorSystem.SetSellHandler(handler)
+    sellHandler = handler
 end
 
 return ConveyorSystem

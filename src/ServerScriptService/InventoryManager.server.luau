@@ -12,6 +12,7 @@ local PlayerProgress = require(game.ServerScriptService.PlayerProgress)
 local Definitions = require(game.ReplicatedStorage.Shared.Definitions)
 local ConveyorSystem = require(game.ServerScriptService.ConveyorSystem)
 local MachineSystem = require(game.ServerScriptService.MachineSystem)
+local SellSystem = require(game.ServerScriptService.SellSystem)
 
 -- Configuration
 local GRID_UNIT_SIZE = 8 -- Fixed grid size in studs
@@ -250,7 +251,7 @@ shopTransactionResultRemote.Name = "ShopTransactionResult"
 shopTransactionResultRemote.Parent = ReplicatedStorage
 
 -- Configuration Constants
-local MAX_ITEMS_PER_PLOT = 20
+local MAX_ITEMS_PER_PLOT = 100
 
 -- Player data storage
 
@@ -259,8 +260,29 @@ local plotAssignments = {} -- {plotId = player.UserId}
 local playerPlots = {} -- {player.UserId = plotId}
 
 -- Default inventory for new players.
--- Prompt 4 shop flow starts empty: players buy placeable items instead of receiving them for free.
-local DEFAULT_INVENTORY = {}
+-- Sell zones are permanent utility items: one per NPC, never bought from the shop.
+local DEFAULT_INVENTORY = {
+    {itemName = "MiraSellZone", count = 1},
+    {itemName = "BrontSellZone", count = 1},
+    {itemName = "ElrikSellZone", count = 1},
+}
+
+local SELL_ZONE_ITEMS = {
+    MiraSellZone = "Mira",
+    BrontSellZone = "Bront",
+    ElrikSellZone = "Elrik",
+}
+
+local function createDefaultInventory()
+    local inventory = {}
+    for _, itemInfo in ipairs(DEFAULT_INVENTORY) do
+        table.insert(inventory, {
+            itemName = itemInfo.itemName,
+            count = itemInfo.count,
+        })
+    end
+    return inventory
+end
 
 local function getTemplateAlias(itemName)
     if itemName == "MineEntrance" then
@@ -365,6 +387,77 @@ local function createSawmillTemplate()
     return sawmill
 end
 
+local SELL_ZONE_COLORS = {
+    Mira = Color3.fromRGB(58, 150, 84),
+    Bront = Color3.fromRGB(139, 96, 54),
+    Elrik = Color3.fromRGB(118, 126, 134),
+}
+
+local function createSellZoneTemplate(itemName)
+    local existing = templatesFolder:FindFirstChild(itemName)
+    if existing then
+        return existing
+    end
+
+    local itemDef = Definitions.GetItem(itemName)
+    if not itemDef or itemDef.type ~= "sell_zone" or not itemDef.npcName then
+        return nil
+    end
+
+    local npcName = itemDef.npcName
+    local zone = Instance.new("Model")
+    zone.Name = itemName
+    zone:SetAttribute("NPCName", npcName)
+
+    local base = Instance.new("Part")
+    base.Name = "SellZone"
+    base.Size = Vector3.new(7.6, 0.14, 7.6)
+    base.CFrame = CFrame.new(0, 0.07, 0)
+    base.Anchored = true
+    base.CanCollide = true
+    base.Material = Enum.Material.Neon
+    base.Color = SELL_ZONE_COLORS[npcName] or Color3.fromRGB(82, 170, 95)
+    base.Transparency = 0.2
+    base.Parent = zone
+
+    local marker = Instance.new("Part")
+    marker.Name = "Marker"
+    marker.Size = Vector3.new(3.5, 0.08, 3.5)
+    marker.CFrame = CFrame.new(0, 0.2, 0)
+    marker.Anchored = true
+    marker.CanCollide = false
+    marker.CanQuery = false
+    marker.CanTouch = false
+    marker.Material = Enum.Material.SmoothPlastic
+    marker.Color = Color3.fromRGB(245, 245, 245)
+    marker.Transparency = 0.55
+    marker.Parent = zone
+
+    local billboard = Instance.new("BillboardGui")
+    billboard.Name = "SellZoneLabel"
+    billboard.Size = UDim2.fromOffset(110, 28)
+    billboard.StudsOffsetWorldSpace = Vector3.new(0, 2.2, 0)
+    billboard.AlwaysOnTop = true
+    billboard.Parent = base
+
+    local label = Instance.new("TextLabel")
+    label.Name = "Label"
+    label.Size = UDim2.fromScale(1, 1)
+    label.BackgroundTransparency = 0.25
+    label.BackgroundColor3 = Color3.fromRGB(18, 20, 22)
+    label.BorderSizePixel = 0
+    label.Text = npcName .. " Sell"
+    label.TextColor3 = Color3.fromRGB(245, 248, 250)
+    label.TextScaled = true
+    label.Font = Enum.Font.GothamBold
+    label.Parent = billboard
+
+    zone.PrimaryPart = base
+    zone.Parent = templatesFolder
+
+    return zone
+end
+
 local function ensureItemTemplate(itemName)
     local template = templatesFolder:FindFirstChild(itemName)
     if template then
@@ -385,6 +478,11 @@ local function ensureItemTemplate(itemName)
         return createSawmillTemplate()
     end
 
+    local itemDef = Definitions.GetItem(itemName)
+    if itemDef and itemDef.type == "sell_zone" then
+        return createSellZoneTemplate(itemName)
+    end
+
     return nil
 end
 
@@ -393,6 +491,10 @@ local function ensurePurchasableTemplates()
         if itemDef.cost and not itemDef.isProduction then
             ensureItemTemplate(itemName)
         end
+    end
+
+    for _, itemInfo in ipairs(DEFAULT_INVENTORY) do
+        ensureItemTemplate(itemInfo.itemName)
     end
 end
 
@@ -413,6 +515,16 @@ end
 local function isValidInventoryItem(itemName)
     local itemDef = Definitions.GetItem(itemName)
     return itemDef ~= nil and itemDef.isProduction ~= true
+end
+
+local function isSellZoneItem(itemName)
+    local itemDef = Definitions.GetItem(itemName)
+    return itemDef ~= nil and itemDef.type == "sell_zone" and itemDef.npcName ~= nil
+end
+
+local function getSellZoneNpcName(itemName)
+    local itemDef = Definitions.GetItem(itemName)
+    return itemDef and itemDef.type == "sell_zone" and itemDef.npcName or nil
 end
 
 local function normalizeInventory(inventory)
@@ -437,13 +549,48 @@ local function normalizeInventory(inventory)
 
     local normalized = {}
     for _, itemName in ipairs(order) do
+        local count = totals[itemName]
+        if isSellZoneItem(itemName) then
+            count = math.min(count, 1)
+        end
+
         table.insert(normalized, {
             itemName = itemName,
-            count = totals[itemName],
+            count = count,
         })
     end
 
     return normalized
+end
+
+local function getInventoryCount(inventory, itemName)
+    for _, invItem in ipairs(inventory or {}) do
+        if invItem.itemName == itemName then
+            return tonumber(invItem.count) or 0
+        end
+    end
+
+    return 0
+end
+
+local function setInventoryCount(inventory, itemName, count)
+    count = math.max(0, math.floor(tonumber(count) or 0))
+
+    for index = #inventory, 1, -1 do
+        local invItem = inventory[index]
+        if invItem.itemName == itemName then
+            if count <= 0 then
+                table.remove(inventory, index)
+            else
+                invItem.count = count
+            end
+            return
+        end
+    end
+
+    if count > 0 then
+        table.insert(inventory, {itemName = itemName, count = count})
+    end
 end
 
 local function addItemToInventory(player, itemName, count)
@@ -493,6 +640,79 @@ local function removeItemFromInventory(player, itemName, count)
 end
 
 ensurePurchasableTemplates()
+
+local function reconcileSellZoneOwnership(player)
+    local data = playerData[player]
+    if not data then
+        return
+    end
+
+    data.inventory = normalizeInventory(data.inventory)
+
+    local placedByNpc = {}
+    for index = #data.placedItems, 1, -1 do
+        local placedItem = data.placedItems[index]
+        if placedItem and placedItem.Parent then
+            local itemName = placedItem:GetAttribute("ItemName")
+            local npcName = getSellZoneNpcName(itemName)
+            if npcName then
+                if placedByNpc[npcName] then
+                    SellSystem.UnregisterPlacedItem(player, placedItem)
+                    placedItem:Destroy()
+                    table.remove(data.placedItems, index)
+                else
+                    placedByNpc[npcName] = true
+                end
+            end
+        elseif placedItem then
+            table.remove(data.placedItems, index)
+        end
+    end
+
+    for itemName, npcName in pairs(SELL_ZONE_ITEMS) do
+        if placedByNpc[npcName] then
+            setInventoryCount(data.inventory, itemName, 0)
+        else
+            setInventoryCount(data.inventory, itemName, 1)
+        end
+    end
+end
+
+local function hasPlacedSellZoneForNpc(player, npcName)
+    local data = playerData[player]
+    if not data then
+        return false
+    end
+
+    for _, placedItem in ipairs(data.placedItems) do
+        if placedItem and placedItem.Parent then
+            local itemName = placedItem:GetAttribute("ItemName")
+            if getSellZoneNpcName(itemName) == npcName then
+                return true
+            end
+        end
+    end
+
+    return false
+end
+
+local function countPlacedMachines(player)
+    local data = playerData[player]
+    if not data then
+        return 0
+    end
+
+    local count = 0
+    for _, placedItem in ipairs(data.placedItems) do
+        if placedItem and placedItem.Parent then
+            if Definitions.GetMachine(placedItem:GetAttribute("ItemName")) then
+                count += 1
+            end
+        end
+    end
+
+    return count
+end
 
 -- Function to get plot by ID
 local function getPlotById(plotId)
@@ -811,6 +1031,7 @@ local function spawnSavedItems(player, itemsData, plotId)
             newItem:PivotTo(CFrame.new(position) * getRotationCFrame(rotation))
             
             -- Set attributes
+            local itemDef = Definitions.GetItem(itemInfo.itemName)
             newItem:SetAttribute("Owner", player.UserId)
             newItem:SetAttribute("ItemName", itemInfo.itemName)
             newItem:SetAttribute("CellsX", cellsX)
@@ -819,6 +1040,9 @@ local function spawnSavedItems(player, itemsData, plotId)
             newItem:SetAttribute("CellZ", cellZ)
             newItem:SetAttribute("Rotation", rotation)
             newItem:SetAttribute("ScaleFactor", itemInfo.scaleFactor or 1)
+            if itemDef and itemDef.npcName then
+                newItem:SetAttribute("NPCName", itemDef.npcName)
+            end
             
             -- Parent to player's items folder
             local playerItemsFolder = workspace:FindFirstChild("PlayerItems_" .. player.UserId)
@@ -826,6 +1050,7 @@ local function spawnSavedItems(player, itemsData, plotId)
                 newItem.Parent = playerItemsFolder
                 table.insert(data.placedItems, newItem)
                 MachineSystem.RegisterPlacedItem(player, newItem)
+                SellSystem.RegisterPlacedItem(player, newItem)
             end
         end
     end
@@ -880,7 +1105,7 @@ local function onPlayerAdded(player)
         }
     else
         playerData[player] = {
-            inventory = table.clone(DEFAULT_INVENTORY),
+            inventory = createDefaultInventory(),
             placedItems = {}
         }
     end
@@ -897,6 +1122,7 @@ local function onPlayerAdded(player)
     if savedData and savedData.placedItems then
         spawnSavedItems(player, savedData.placedItems, plotId)
     end
+    reconcileSellZoneOwnership(player)
     
     -- Teleport player to their plot when character spawns
     if player.Character then
@@ -917,6 +1143,7 @@ local function onPlayerRemoving(player)
     savePlayerData(player)
 
     MachineSystem.ClearPlayer(player)
+    SellSystem.ClearPlayer(player)
     
     -- Clear player progress from cache
     PlayerProgress.ClearPlayerData(player)
@@ -940,6 +1167,7 @@ placeItemRemote.OnServerEvent:Connect(function(player, itemName, position, scale
     local data = playerData[player]
     if not data then return end
     data.inventory = normalizeInventory(data.inventory)
+    reconcileSellZoneOwnership(player)
     
     -- Get player's assigned plot
     local plotId = playerPlots[player.UserId]
@@ -966,6 +1194,12 @@ placeItemRemote.OnServerEvent:Connect(function(player, itemName, position, scale
     
     if not inventoryItem then
         return false, "Item not in inventory"
+    end
+
+    local sellZoneNpcName = getSellZoneNpcName(itemName)
+    if sellZoneNpcName and hasPlacedSellZoneForNpc(player, sellZoneNpcName) then
+        reconcileSellZoneOwnership(player)
+        return false, "Only one sell zone per NPC is allowed"
     end
     
     -- Get template and check size
@@ -1030,6 +1264,10 @@ placeItemRemote.OnServerEvent:Connect(function(player, itemName, position, scale
     newItem:SetAttribute("CellZ", cellZ)
     newItem:SetAttribute("Rotation", rotation)
     newItem:SetAttribute("ScaleFactor", scaleFactor) -- Store the scale factor
+    local placedItemDef = Definitions.GetItem(itemName)
+    if placedItemDef and placedItemDef.npcName then
+        newItem:SetAttribute("NPCName", placedItemDef.npcName)
+    end
     
     -- Decrease inventory count
     inventoryItem.count = inventoryItem.count - 1
@@ -1039,6 +1277,8 @@ placeItemRemote.OnServerEvent:Connect(function(player, itemName, position, scale
     
     table.insert(data.placedItems, newItem)
     MachineSystem.RegisterPlacedItem(player, newItem)
+    SellSystem.RegisterPlacedItem(player, newItem)
+    reconcileSellZoneOwnership(player)
     
     -- Save after placing
     savePlayerData(player)
@@ -1070,6 +1310,7 @@ deleteItemRemote.OnServerEvent:Connect(function(player, item)
     
     local itemName = item:GetAttribute("ItemName") or "Unknown"
     MachineSystem.UnregisterPlacedItem(player, item)
+    SellSystem.UnregisterPlacedItem(player, item)
     
     -- Remove from placed items list
     for i, placedItem in ipairs(data.placedItems) do
@@ -1096,6 +1337,7 @@ deleteItemRemote.OnServerEvent:Connect(function(player, item)
     else
         table.insert(data.inventory, {itemName = itemName, count = 1})
     end
+    reconcileSellZoneOwnership(player)
     
     -- No refund - items are free to delete
     print(player.Name .. " deleted " .. itemName .. " and removed it from world")
@@ -1230,7 +1472,7 @@ getTownPrestigeRemote.OnServerInvoke = function(player)
     return {
         stage = progress.townPrestige.stage,
         contributions = progress.townPrestige.contributions or 0,
-        currentItemsPlaced = #(playerData[player] and playerData[player].placedItems or {}),
+        currentItemsPlaced = countPlacedMachines(player),
         maxItemsAllowed = MAX_ITEMS_PER_PLOT
     }
 end
@@ -1248,7 +1490,7 @@ buyItemRemote.OnServerEvent:Connect(function(player, itemName)
     end
     
     -- Check if item is purchasable (has a cost)
-    if not itemDef.cost or itemDef.isProduction then
+    if not itemDef.cost or itemDef.isProduction or itemDef.type == "sell_zone" then
         print(player.Name .. " tried to buy non-purchasable item: " .. itemName)
         sendShopResult(player, false, "buy", itemName, "This item cannot be bought.", nil)
         return
@@ -1359,6 +1601,7 @@ ConveyorSystem.Initialize({
     end,
 })
 MachineSystem.Initialize()
+SellSystem.Initialize()
 
 -- Setup players
 Players.PlayerAdded:Connect(onPlayerAdded)

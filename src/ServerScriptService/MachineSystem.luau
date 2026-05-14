@@ -59,6 +59,8 @@ local function getOutputCell(machine)
     end
 
     local rotation = instance and instance.Parent and instance:GetAttribute("Rotation") or machine.rotation
+    local machineData = Definitions.GetMachine(machine.name)
+    rotation = normalizeRotation(rotation + (machineData and machineData.outputRotationOffset or 0))
     local dx, dz = getDirectionForRotation(rotation)
     local cellsX = instance and instance.Parent and instance:GetAttribute("CellsX") or machine.cellsX or 1
     local cellsZ = instance and instance.Parent and instance:GetAttribute("CellsZ") or machine.cellsZ or 1

@@ -10,6 +10,7 @@
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local TweenService = game:GetService("TweenService")
 
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
@@ -18,12 +19,13 @@ local playerGui = player:WaitForChild("PlayerGui")
 local getMoneyRemote = ReplicatedStorage:WaitForChild("GetMoney")
 local getReputationRemote = ReplicatedStorage:WaitForChild("GetReputation")
 local getTownPrestigeRemote = ReplicatedStorage:WaitForChild("GetTownPrestige")
+local saleFeedbackRemote = ReplicatedStorage:WaitForChild("ProductionItemSold", 5)
 
 -- Configuration
 local UPDATE_INTERVAL = 0.5 -- seconds
 local ANIMATION_DURATION = 0.3 -- seconds for money change animation
 local HUD_WIDTH = 300
-local HUD_HEIGHT = 180
+local HUD_HEIGHT = 218
 
 -- State tracking
 local currentMoney = 0
@@ -168,10 +170,34 @@ local function createHUD()
 	prestigeLabel.TextXAlignment = Enum.TextXAlignment.Left
 	prestigeLabel.Parent = prestigeFrame
 
+	-- ===== PLOT USAGE DISPLAY =====
+	local plotUsageFrame = Instance.new("Frame")
+	plotUsageFrame.Name = "PlotUsageFrame"
+	plotUsageFrame.Size = UDim2.new(1, 0, 0, 30)
+	plotUsageFrame.BackgroundColor3 = Color3.fromRGB(40, 40, 50)
+	plotUsageFrame.BorderSizePixel = 0
+	plotUsageFrame.Parent = mainFrame
+
+	local plotUsageCorner = Instance.new("UICorner")
+	plotUsageCorner.CornerRadius = UDim.new(0, 5)
+	plotUsageCorner.Parent = plotUsageFrame
+
+	local plotUsageLabel = Instance.new("TextLabel")
+	plotUsageLabel.Name = "PlotUsageLabel"
+	plotUsageLabel.Size = UDim2.fromScale(1, 1)
+	plotUsageLabel.BackgroundTransparency = 1
+	plotUsageLabel.Text = "Machines: 0/100"
+	plotUsageLabel.TextColor3 = Color3.fromRGB(190, 230, 255)
+	plotUsageLabel.Font = Enum.Font.GothamBold
+	plotUsageLabel.TextSize = 12
+	plotUsageLabel.TextXAlignment = Enum.TextXAlignment.Left
+	plotUsageLabel.Parent = plotUsageFrame
+
 	return screenGui, {
 		money = moneyLabel,
 		reputation = reputationFrame,
 		prestige = prestigeLabel,
+		plotUsage = plotUsageLabel,
 	}
 end
 
@@ -192,6 +218,49 @@ local function animateMoneyChange(moneyLabel, oldMoney, newMoney)
 	-- Reset color after animation
 	task.wait(ANIMATION_DURATION)
 	moneyLabel.TextColor3 = Color3.fromRGB(200, 255, 100)
+end
+
+local function showSalePopup(gui, result)
+    if not gui or not gui.Parent or not result then
+        return
+    end
+
+    local popup = Instance.new("TextLabel")
+    popup.Name = "SalePopup"
+    popup.Size = UDim2.fromOffset(260, 36)
+    popup.Position = UDim2.new(0.5, -130, 0, 95)
+    popup.BackgroundColor3 = Color3.fromRGB(34, 132, 72)
+    popup.BackgroundTransparency = 0.08
+    popup.BorderSizePixel = 0
+    popup.TextColor3 = Color3.fromRGB(240, 255, 244)
+    popup.TextScaled = true
+    popup.Font = Enum.Font.GothamBold
+    popup.Text = "+" .. tostring(result.money or 0) .. "$ +" .. tostring(result.reputation or 0) .. " Rep (" .. tostring(result.npcName or "?") .. ")"
+    popup.Parent = gui
+
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, 8)
+    corner.Parent = popup
+
+    local stroke = Instance.new("UIStroke")
+    stroke.Color = Color3.fromRGB(170, 255, 190)
+    stroke.Thickness = 1
+    stroke.Transparency = 0.25
+    stroke.Parent = popup
+
+    local tween = TweenService:Create(popup, TweenInfo.new(1.25, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+        Position = UDim2.new(0.5, -130, 0, 53),
+        BackgroundTransparency = 1,
+        TextTransparency = 1,
+    })
+
+    tween.Completed:Connect(function()
+        if popup and popup.Parent then
+            popup:Destroy()
+        end
+    end)
+
+    tween:Play()
 end
 
 -- Function to update HUD with current data
@@ -229,6 +298,11 @@ local function updateHUD(labels)
 			[4] = "City",
 		}
 		local stageName = stageNames[prestige.stage] or ("Stage " .. prestige.stage)
+		local placedCount = prestige.currentItemsPlaced or 0
+		local maxPlaced = prestige.maxItemsAllowed or 100
+		if labels.plotUsage then
+			labels.plotUsage.Text = "Machines: " .. tostring(placedCount) .. "/" .. tostring(maxPlaced)
+		end
 		labels.prestige.Text = "🏛️ " .. stageName .. " (" .. prestige.contributions .. "/500)"
 	end
 end
@@ -236,6 +310,12 @@ end
 -- Main update loop
 local function mainLoop()
 	local gui, labels = createHUD()
+
+	if saleFeedbackRemote then
+		saleFeedbackRemote.OnClientEvent:Connect(function(result)
+			showSalePopup(gui, result)
+		end)
+	end
 
 	while true do
 		task.wait(UPDATE_INTERVAL)

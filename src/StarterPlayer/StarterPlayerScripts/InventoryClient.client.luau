@@ -260,24 +260,75 @@ local function isAreaOccupied(cellX, cellZ, cellsX, cellsZ, plotInfo, gridUnit, 
     return false
 end
 
+local function findOwnedPlacedItemAtCell(cellX, cellZ)
+    local playerItemsFolder = workspace:FindFirstChild("PlayerItems_" .. player.UserId)
+    if not playerItemsFolder then
+        return nil
+    end
+
+    for _, placedItem in ipairs(playerItemsFolder:GetChildren()) do
+        if placedItem:IsA("Model") and placedItem:GetAttribute("Owner") == player.UserId and not placedItem:GetAttribute("IsPlot") then
+            local itemCellX = placedItem:GetAttribute("CellX")
+            local itemCellZ = placedItem:GetAttribute("CellZ")
+            local itemCellsX = placedItem:GetAttribute("CellsX") or 1
+            local itemCellsZ = placedItem:GetAttribute("CellsZ") or 1
+
+            if itemCellX ~= nil and itemCellZ ~= nil then
+                if cellX >= itemCellX and cellX < itemCellX + itemCellsX and cellZ >= itemCellZ and cellZ < itemCellZ + itemCellsZ then
+                    return placedItem
+                end
+            end
+        end
+    end
+
+    return nil
+end
+
+local function getOwnedPlacedItemFromPlotCell(ray)
+    local plotInfo = getPlotInfo()
+    if not plotInfo or math.abs(ray.Direction.Y) < 0.0001 then
+        return nil
+    end
+
+    local plotTopY = plotInfo.position.Y + plotInfo.size.Y / 2
+    local distance = (plotTopY - ray.Origin.Y) / ray.Direction.Y
+    if distance < 0 then
+        return nil
+    end
+
+    local hitPosition = ray.Origin + ray.Direction * distance
+    local halfPlotSize = plotInfo.size / 2
+    if hitPosition.X < plotInfo.position.X - halfPlotSize.X or hitPosition.X > plotInfo.position.X + halfPlotSize.X
+        or hitPosition.Z < plotInfo.position.Z - halfPlotSize.Z or hitPosition.Z > plotInfo.position.Z + halfPlotSize.Z then
+        return nil
+    end
+
+    local gridUnit = currentGridUnit
+    if gridUnit == 0 then
+        gridUnit = getGridUnitSize()
+    end
+
+    local cellX, cellZ = worldToGrid(hitPosition, plotInfo, gridUnit)
+    return findOwnedPlacedItemAtCell(cellX, cellZ)
+end
+
 local function getOwnedPlacedItemFromRay()
+    local playerItemsFolder = workspace:FindFirstChild("PlayerItems_" .. player.UserId)
+    if not playerItemsFolder then
+        return nil
+    end
+
     local camera = workspace.CurrentCamera
     local mousePos = UserInputService:GetMouseLocation()
     local ray = camera:ViewportPointToRay(mousePos.X, mousePos.Y)
 
     local rayParams = RaycastParams.new()
-    rayParams.FilterType = Enum.RaycastFilterType.Exclude
-    rayParams.FilterDescendantsInstances = {}
-    if ghostItem then
-        table.insert(rayParams.FilterDescendantsInstances, ghostItem)
-    end
-    if player.Character then
-        table.insert(rayParams.FilterDescendantsInstances, player.Character)
-    end
+    rayParams.FilterType = Enum.RaycastFilterType.Include
+    rayParams.FilterDescendantsInstances = {playerItemsFolder}
 
     local result = workspace:Raycast(ray.Origin, ray.Direction * 1000, rayParams)
     if not result or not result.Instance then
-        return nil
+        return getOwnedPlacedItemFromPlotCell(ray)
     end
 
     local target = result.Instance
@@ -301,7 +352,7 @@ local function getOwnedPlacedItemFromRay()
         return target
     end
 
-    return nil
+    return getOwnedPlacedItemFromPlotCell(ray)
 end
 
 -- Function to get item height
@@ -422,8 +473,45 @@ local function createSelectionBox(item)
     
     selectionBox = Instance.new("Highlight")
     selectionBox.Name = "DeletionHighlight"
-    selectionBox.FillTransparency = 0.8
     selectionBox.OutlineTransparency = 0
+
+    local itemName = item:GetAttribute("ItemName")
+    local itemDef = Definitions.GetItem(itemName)
+    if itemDef and itemDef.type == "sell_zone" then
+        selectionBox:Destroy()
+
+        local plotInfo = getPlotInfo()
+        local gridUnit = currentGridUnit
+        if gridUnit == 0 then
+            gridUnit = getGridUnitSize()
+        end
+
+        local cellX = item:GetAttribute("CellX")
+        local cellZ = item:GetAttribute("CellZ")
+        local cellsX = item:GetAttribute("CellsX") or 1
+        local cellsZ = item:GetAttribute("CellsZ") or 1
+        if not plotInfo or cellX == nil or cellZ == nil then
+            return
+        end
+
+        local center = getFootprintCenter(cellX, cellZ, cellsX, cellsZ, plotInfo, gridUnit)
+        local overlay = Instance.new("Part")
+        overlay.Name = "DeletionHighlight"
+        overlay.Size = Vector3.new(cellsX * gridUnit, 0.18, cellsZ * gridUnit)
+        overlay.CFrame = CFrame.new(center.X, plotInfo.position.Y + plotInfo.size.Y / 2 + 0.22, center.Z)
+        overlay.Anchored = true
+        overlay.CanCollide = false
+        overlay.CanQuery = false
+        overlay.CanTouch = false
+        overlay.Material = Enum.Material.Neon
+        overlay.Color = Color3.fromRGB(255, 220, 70)
+        overlay.Transparency = 0.25
+        overlay.Parent = workspace
+        selectionBox = overlay
+        return
+    end
+
+    selectionBox.FillTransparency = 0.8
     selectionBox.OutlineColor = Color3.fromRGB(255, 50, 50)
     selectionBox.FillColor = Color3.fromRGB(255, 50, 50)
     selectionBox.Adornee = item

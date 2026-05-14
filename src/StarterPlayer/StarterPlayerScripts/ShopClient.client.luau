@@ -28,7 +28,8 @@ local shopTransactionResultRemote = ReplicatedStorage:WaitForChild("ShopTransact
 local CATEGORY_ORDER = {
 	machine = 1,
 	transportation = 2,
-	decoration = 3,
+	sell_zone = 3,
+	decoration = 4,
 }
 
 local ui = ShopUI.Create(playerGui)
@@ -123,7 +124,7 @@ local function loadPurchasableItems()
 	purchasableItems = {}
 
 	for itemName, itemData in pairs(Definitions.GetAllItems()) do
-		if itemData.cost and not itemData.isProduction then
+		if itemData.cost and not itemData.isProduction and itemData.type ~= "sell_zone" then
 			table.insert(purchasableItems, {
 				name = itemName,
 				icon = itemData.icon or "?",
