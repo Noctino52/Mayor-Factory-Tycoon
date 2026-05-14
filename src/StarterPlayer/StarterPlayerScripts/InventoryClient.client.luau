@@ -6,6 +6,7 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local UserInputService = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
 
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
@@ -17,6 +18,7 @@ local templatesFolder = sharedFolder:WaitForChild("ItemTemplates")
 local placeItemRemote = ReplicatedStorage:WaitForChild("PlaceItem")
 local getInventoryRemote = ReplicatedStorage:WaitForChild("GetInventory")
 local deleteItemRemote = ReplicatedStorage:WaitForChild("DeleteItem")
+local rotateItemRemote = ReplicatedStorage:WaitForChild("RotateItem")
 local getPlotRemote = ReplicatedStorage:WaitForChild("GetPlayerPlot")
 local inventoryUpdatedRemote = ReplicatedStorage:WaitForChild("InventoryUpdated")
 
@@ -50,14 +52,26 @@ end
 -- State
 local inventory = {}
 local selectedItem = nil
+local placementRotation = 0 -- 0, 1, 2, 3 = 0, 90, 180, 270 degrees
 local placementMode = false
 local deletionMode = false
 local ghostItem = nil
 local canPlace = false
 local hoveredDeleteItem = nil
+local hoveredPlacedItem = nil
+local placedItemHoverStartedAt = nil
+local placedItemHoverEndedAt = nil
 local gridVisuals = {} -- Grid lines
 local highlightBox = nil -- Single box to highlight target cells
 local selectionBox = nil -- For deletion highlight
+local itemContextBillboard = nil
+local itemContextAttachment = nil
+local itemContextMenu = nil
+local contextMenuTarget = nil
+local contextMenuTween = nil
+local lastContextRotateAt = 0
+local placementIndicator = nil
+local indicatorText = nil
 local currentGridUnit = 0 -- Cache for current grid unit size
 local currentScaleFactor = 1 -- Cache for current scale factor
 local lastPlotSize = nil -- Track plot size changes
@@ -117,19 +131,96 @@ local function gridToWorld(cellX, cellZ, plotInfo, gridUnit)
     )
 end
 
+local function getItemBaseFootprint(itemName)
+    local itemDef = Definitions.GetItem(itemName)
+    if itemDef and itemDef.gridSize then
+        return itemDef.gridSize.x or itemDef.gridSize.X or itemDef.gridSize[1] or 1,
+               itemDef.gridSize.z or itemDef.gridSize.Z or itemDef.gridSize[2] or 1
+    end
+
+    if itemDef and itemDef.cells then
+        return itemDef.cells.x or itemDef.cells.X or itemDef.cells[1] or 1,
+               itemDef.cells.z or itemDef.cells.Z or itemDef.cells[2] or 1
+    end
+
+    if itemName and (itemName:find("CurvedConveyor") or itemName:find("ConveyorCurve") or itemName:find("ConveyorCorner")) then
+        return 2, 1
+    end
+
+    return 1, 1
+end
+
+local function getRotatedFootprint(itemName, rotation)
+    local cellsX, cellsZ = getItemBaseFootprint(itemName)
+    if rotation % 2 == 1 then
+        return cellsZ, cellsX
+    end
+
+    return cellsX, cellsZ
+end
+
+local function getFootprintCenter(cellX, cellZ, cellsX, cellsZ, plotInfo, gridUnit)
+    if not plotInfo then return nil end
+
+    return Vector3.new(
+        plotInfo.position.X + (cellX + cellsX / 2) * gridUnit,
+        plotInfo.position.Y + plotInfo.size.Y / 2,
+        plotInfo.position.Z + (cellZ + cellsZ / 2) * gridUnit
+    )
+end
+
+local function getRotationCFrame(rotation)
+    return CFrame.Angles(0, (rotation % 4) * math.pi / 2, 0)
+end
+
+local ITEM_VISUAL_ADJUSTMENTS = {
+    Conveyor = {
+        footprintPadding = 0.98,
+        maxHeight = 1.2,
+    },
+}
+
+local function getItemFootprintPadding(itemName)
+    local adjustment = ITEM_VISUAL_ADJUSTMENTS[itemName]
+    return (adjustment and adjustment.footprintPadding) or 1
+end
+
+local function applyItemVisualAdjustments(item, itemName)
+    local adjustment = ITEM_VISUAL_ADJUSTMENTS[itemName]
+    if not adjustment or not adjustment.maxHeight then
+        return
+    end
+
+    local _, size = item:GetBoundingBox()
+    if size.Y <= adjustment.maxHeight or size.Y <= 0 then
+        return
+    end
+
+    local heightScale = adjustment.maxHeight / size.Y
+    for _, descendant in ipairs(item:GetDescendants()) do
+        if descendant:IsA("BasePart") then
+            descendant.Size = Vector3.new(
+                descendant.Size.X,
+                math.max(0.05, descendant.Size.Y * heightScale),
+                descendant.Size.Z
+            )
+        end
+    end
+end
+
 -- Function to check if cells are within plot bounds
-local function areCellsValid(cellX, cellZ, itemGridCells, plotInfo, gridUnit)
+local function areCellsValid(cellX, cellZ, cellsX, cellsZ, plotInfo, gridUnit)
     if not plotInfo then return false end
     
     local halfPlotCellsX = math.floor((plotInfo.size.X / 2) / gridUnit)
     local halfPlotCellsZ = math.floor((plotInfo.size.Z / 2) / gridUnit)
     
-    for dx = 0, itemGridCells - 1 do
-        for dz = 0, itemGridCells - 1 do
+    for dx = 0, cellsX - 1 do
+        for dz = 0, cellsZ - 1 do
             local checkX = cellX + dx
             local checkZ = cellZ + dz
             
-            if math.abs(checkX) >= halfPlotCellsX or math.abs(checkZ) >= halfPlotCellsZ then
+            if checkX < -halfPlotCellsX or checkX >= halfPlotCellsX or checkZ < -halfPlotCellsZ or checkZ >= halfPlotCellsZ then
                 return false
             end
         end
@@ -138,25 +229,79 @@ local function areCellsValid(cellX, cellZ, itemGridCells, plotInfo, gridUnit)
     return true
 end
 
--- Function to check if a cell is occupied (simplified for 1x1 items)
-local function isCellOccupied(cellX, cellZ, plotInfo, gridUnit)
+local function doFootprintsOverlap(ax, az, aw, ad, bx, bz, bw, bd)
+    return ax < bx + bw and ax + aw > bx and az < bz + bd and az + ad > bz
+end
+
+-- Function to check if target cells are occupied
+local function isAreaOccupied(cellX, cellZ, cellsX, cellsZ, plotInfo, gridUnit, ignoredItem)
     -- Get all placed items
     local playerItemsFolder = workspace:FindFirstChild("PlayerItems_" .. player.UserId)
     if not playerItemsFolder then return false end
     
     for _, placedItem in ipairs(playerItemsFolder:GetChildren()) do
-        if placedItem:IsA("Model") then
+        if placedItem:IsA("Model") and placedItem ~= ignoredItem then
             local itemPos = placedItem:GetPivot().Position
-            local itemCellX, itemCellZ = worldToGrid(itemPos, plotInfo, gridUnit)
+            local itemCellX = placedItem:GetAttribute("CellX")
+            local itemCellZ = placedItem:GetAttribute("CellZ")
+            local itemCellsX = placedItem:GetAttribute("CellsX") or 1
+            local itemCellsZ = placedItem:GetAttribute("CellsZ") or 1
+
+            if itemCellX == nil or itemCellZ == nil then
+                itemCellX, itemCellZ = worldToGrid(itemPos, plotInfo, gridUnit)
+            end
             
-            -- Each item occupies exactly 1 cell
-            if itemCellX == cellX and itemCellZ == cellZ then
+            if doFootprintsOverlap(cellX, cellZ, cellsX, cellsZ, itemCellX, itemCellZ, itemCellsX, itemCellsZ) then
                 return true
             end
         end
     end
     
     return false
+end
+
+local function getOwnedPlacedItemFromRay()
+    local camera = workspace.CurrentCamera
+    local mousePos = UserInputService:GetMouseLocation()
+    local ray = camera:ViewportPointToRay(mousePos.X, mousePos.Y)
+
+    local rayParams = RaycastParams.new()
+    rayParams.FilterType = Enum.RaycastFilterType.Exclude
+    rayParams.FilterDescendantsInstances = {}
+    if ghostItem then
+        table.insert(rayParams.FilterDescendantsInstances, ghostItem)
+    end
+    if player.Character then
+        table.insert(rayParams.FilterDescendantsInstances, player.Character)
+    end
+
+    local result = workspace:Raycast(ray.Origin, ray.Direction * 1000, rayParams)
+    if not result or not result.Instance then
+        return nil
+    end
+
+    local target = result.Instance
+    if target:GetAttribute("IsPlot") then
+        return nil
+    end
+
+    while target and target.Parent and target.Parent ~= workspace do
+        if target:GetAttribute("IsPlot") then
+            return nil
+        end
+
+        if target:GetAttribute("Owner") then
+            break
+        end
+
+        target = target.Parent
+    end
+
+    if target and target:GetAttribute("Owner") == player.UserId and not target:GetAttribute("IsPlot") then
+        return target
+    end
+
+    return nil
 end
 
 -- Function to get item height
@@ -304,6 +449,278 @@ screenGui.Name = "InventoryUI"
 screenGui.ResetOnSpawn = false
 screenGui.Parent = playerGui
 
+local function hideItemContextMenu()
+    if contextMenuTween then
+        contextMenuTween:Cancel()
+        contextMenuTween = nil
+    end
+
+    if itemContextBillboard then
+        itemContextBillboard.Enabled = false
+        itemContextBillboard.Adornee = nil
+    end
+
+    if itemContextAttachment then
+        itemContextAttachment:Destroy()
+        itemContextAttachment = nil
+    end
+
+    if itemContextMenu then
+        itemContextMenu.Visible = false
+    end
+    contextMenuTarget = nil
+end
+
+local function getContextMenuWorldPosition()
+    if itemContextAttachment then
+        return itemContextAttachment.WorldPosition
+    end
+
+    if itemContextBillboard and itemContextBillboard.Adornee then
+        local adornee = itemContextBillboard.Adornee
+        if adornee:IsA("Attachment") then
+            return adornee.WorldPosition
+        elseif adornee:IsA("BasePart") then
+            return adornee.Position + itemContextBillboard.StudsOffsetWorldSpace
+        end
+    end
+
+    return nil
+end
+
+local function isMouseInsideContextMenu()
+    if not itemContextMenu or not itemContextMenu.Visible then
+        return false
+    end
+
+    local mousePos = UserInputService:GetMouseLocation()
+    if itemContextBillboard and itemContextBillboard.Enabled and itemContextBillboard.Adornee then
+        local camera = workspace.CurrentCamera
+        local worldPosition = getContextMenuWorldPosition()
+        if worldPosition then
+            local screenPosition, onScreen = camera:WorldToViewportPoint(worldPosition)
+            if not onScreen then
+                return false
+            end
+
+            local menuSize = itemContextBillboard.AbsoluteSize
+            if menuSize.X <= 0 or menuSize.Y <= 0 then
+                menuSize = Vector2.new(130, 44)
+            end
+
+            local menuLeft = screenPosition.X - menuSize.X / 2
+            local menuTop = screenPosition.Y - menuSize.Y / 2
+
+            return mousePos.X >= menuLeft and mousePos.X <= menuLeft + menuSize.X and
+                   mousePos.Y >= menuTop and mousePos.Y <= menuTop + menuSize.Y
+        end
+    end
+
+    local menuPos = itemContextMenu.AbsolutePosition
+    local menuSize = itemContextMenu.AbsoluteSize
+
+    return mousePos.X >= menuPos.X and mousePos.X <= menuPos.X + menuSize.X and
+           mousePos.Y >= menuPos.Y and mousePos.Y <= menuPos.Y + menuSize.Y
+end
+
+local function rotateContextMenuTarget()
+    if tick() - lastContextRotateAt < 0.15 then
+        return
+    end
+
+    lastContextRotateAt = tick()
+
+    if contextMenuTarget and contextMenuTarget.Parent then
+        local nextRotation = ((contextMenuTarget:GetAttribute("Rotation") or 0) + 1) % 4
+        local cellsX = contextMenuTarget:GetAttribute("CellsX") or 1
+        local cellsZ = contextMenuTarget:GetAttribute("CellsZ") or 1
+        if cellsX ~= cellsZ then
+            cellsX, cellsZ = cellsZ, cellsX
+        end
+
+        local pivot = contextMenuTarget:GetPivot()
+        local nextPosition = pivot.Position
+        local cellX = contextMenuTarget:GetAttribute("CellX")
+        local cellZ = contextMenuTarget:GetAttribute("CellZ")
+        local plotInfo = getPlotInfo()
+        if cellX ~= nil and cellZ ~= nil and plotInfo then
+            local gridUnit = getGridUnitSize()
+            if not areCellsValid(cellX, cellZ, cellsX, cellsZ, plotInfo, gridUnit) or isAreaOccupied(cellX, cellZ, cellsX, cellsZ, plotInfo, gridUnit, contextMenuTarget) then
+                placementIndicator.Visible = true
+                placementIndicator.BackgroundColor3 = Color3.fromRGB(200, 50, 50)
+                indicatorText.Text = "Cannot rotate here"
+                hideItemContextMenu()
+                return
+            end
+
+            local footprintCenter = getFootprintCenter(cellX, cellZ, cellsX, cellsZ, plotInfo, gridUnit)
+            nextPosition = Vector3.new(footprintCenter.X, pivot.Position.Y, footprintCenter.Z)
+        end
+
+        rotateItemRemote:FireServer(contextMenuTarget)
+        contextMenuTarget:SetAttribute("Rotation", nextRotation)
+        contextMenuTarget:SetAttribute("CellsX", cellsX)
+        contextMenuTarget:SetAttribute("CellsZ", cellsZ)
+        contextMenuTarget:PivotTo(CFrame.new(nextPosition) * getRotationCFrame(nextRotation))
+    end
+
+    hideItemContextMenu()
+end
+
+local function createItemContextMenu()
+    if itemContextMenu then
+        return
+    end
+
+    itemContextBillboard = Instance.new("BillboardGui")
+    itemContextBillboard.Name = "ItemContextBillboard"
+    itemContextBillboard.Size = UDim2.new(0, 130, 0, 44)
+    itemContextBillboard.AlwaysOnTop = true
+    itemContextBillboard.LightInfluence = 0
+    itemContextBillboard.MaxDistance = 120
+    itemContextBillboard.Enabled = false
+    itemContextBillboard.Parent = screenGui
+
+    itemContextMenu = Instance.new("Frame")
+    itemContextMenu.Name = "ItemContextMenu"
+    itemContextMenu.AnchorPoint = Vector2.new(0.5, 0.5)
+    itemContextMenu.Size = UDim2.new(1, 0, 1, 0)
+    itemContextMenu.Position = UDim2.new(0.5, 0, 0.5, 0)
+    itemContextMenu.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
+    itemContextMenu.BackgroundTransparency = 0.05
+    itemContextMenu.BorderSizePixel = 0
+    itemContextMenu.Active = true
+    itemContextMenu.ZIndex = 10
+    itemContextMenu.Visible = false
+    itemContextMenu.Parent = itemContextBillboard
+
+    local menuCorner = Instance.new("UICorner")
+    menuCorner.CornerRadius = UDim.new(0, 8)
+    menuCorner.Parent = itemContextMenu
+
+    local rotateButton = Instance.new("TextButton")
+    rotateButton.Name = "RotateButton"
+    rotateButton.Size = UDim2.new(1, -8, 1, -8)
+    rotateButton.Position = UDim2.new(0, 4, 0, 4)
+    rotateButton.BackgroundColor3 = Color3.fromRGB(70, 70, 70)
+    rotateButton.BorderSizePixel = 0
+    rotateButton.Active = true
+    rotateButton.ZIndex = 11
+    rotateButton.Text = "Rotate"
+    rotateButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+    rotateButton.TextSize = 14
+    rotateButton.Font = Enum.Font.GothamBold
+    rotateButton.Parent = itemContextMenu
+
+    local buttonCorner = Instance.new("UICorner")
+    buttonCorner.CornerRadius = UDim.new(0, 6)
+    buttonCorner.Parent = rotateButton
+
+    rotateButton.Activated:Connect(rotateContextMenuTarget)
+end
+
+local function getItemContextAdornee(target)
+    if target:IsA("BasePart") then
+        return target
+    end
+
+    if target:IsA("Model") then
+        if target.PrimaryPart then
+            return target.PrimaryPart
+        end
+
+        for _, descendant in ipairs(target:GetDescendants()) do
+            if descendant:IsA("BasePart") then
+                return descendant
+            end
+        end
+    end
+
+    return nil
+end
+
+local function attachContextMenuToTarget(target)
+    local adornee = getItemContextAdornee(target)
+    if not adornee then
+        return false
+    end
+
+    if itemContextAttachment then
+        itemContextAttachment:Destroy()
+        itemContextAttachment = nil
+    end
+
+    local targetCenter
+    local targetSize
+    if target:IsA("Model") then
+        local targetCFrame
+        targetCFrame, targetSize = target:GetBoundingBox()
+        targetCenter = targetCFrame.Position
+    elseif target:IsA("BasePart") then
+        targetCenter = target.Position
+        targetSize = target.Size
+    else
+        return false
+    end
+
+    local menuWorldPosition = targetCenter + Vector3.new(0, targetSize.Y / 2 + 1.25, 0)
+    itemContextAttachment = Instance.new("Attachment")
+    itemContextAttachment.Name = "ItemContextMenuAttachment"
+    itemContextAttachment.Position = adornee.CFrame:PointToObjectSpace(menuWorldPosition)
+    itemContextAttachment.Parent = adornee
+
+    itemContextBillboard.Adornee = itemContextAttachment
+    itemContextBillboard.StudsOffsetWorldSpace = Vector3.zero
+    itemContextBillboard.Enabled = true
+
+    return true
+end
+
+local function showItemContextMenu(target)
+    createItemContextMenu()
+    if contextMenuTarget == target and itemContextMenu.Visible then
+        return
+    end
+
+    if not attachContextMenuToTarget(target) then
+        return
+    end
+
+    contextMenuTarget = target
+
+    local finalPosition = UDim2.new(0.5, 0, 0.5, 0)
+    itemContextMenu.Position = UDim2.new(0.5, 0, 0.75, 0)
+    itemContextMenu.BackgroundTransparency = 1
+    itemContextMenu.Visible = true
+
+    local rotateButton = itemContextMenu:FindFirstChild("RotateButton")
+    if rotateButton then
+        rotateButton.BackgroundTransparency = 1
+        rotateButton.TextTransparency = 1
+    end
+
+    if contextMenuTween then
+        contextMenuTween:Cancel()
+    end
+
+    contextMenuTween = TweenService:Create(itemContextMenu, TweenInfo.new(
+        0.16,
+        Enum.EasingStyle.Back,
+        Enum.EasingDirection.Out
+    ), {
+        Position = finalPosition,
+        BackgroundTransparency = 0.05,
+    })
+    contextMenuTween:Play()
+
+    if rotateButton then
+        TweenService:Create(rotateButton, TweenInfo.new(0.12, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+            BackgroundTransparency = 0,
+            TextTransparency = 0,
+        }):Play()
+    end
+end
+
 -- Main inventory frame
 local inventoryFrame = Instance.new("Frame")
 inventoryFrame.Name = "InventoryFrame"
@@ -367,7 +784,7 @@ trashIcon.TextSize = 28
 trashIcon.Parent = deleteButton
 
 -- Placement indicator
-local placementIndicator = Instance.new("Frame")
+placementIndicator = Instance.new("Frame")
 placementIndicator.Name = "PlacementIndicator"
 placementIndicator.Size = UDim2.new(0, 300, 0, 50)
 placementIndicator.Position = UDim2.new(0.5, -150, 0.1, 0)
@@ -381,7 +798,7 @@ local indicatorCorner = Instance.new("UICorner")
 indicatorCorner.CornerRadius = UDim.new(0, 8)
 indicatorCorner.Parent = placementIndicator
 
-local indicatorText = Instance.new("TextLabel")
+indicatorText = Instance.new("TextLabel")
 indicatorText.Size = UDim2.new(1, 0, 1, 0)
 indicatorText.BackgroundTransparency = 1
 indicatorText.Text = "Click to place | Click button to cancel"
@@ -390,17 +807,20 @@ indicatorText.TextSize = 14
 indicatorText.Font = Enum.Font.GothamBold
 indicatorText.Parent = placementIndicator
 
--- Function to calculate scale to fit in ONE cell
-local function calculateItemScaleForOneCell(item, gridUnit)
+-- Function to calculate scale to fit the item's base footprint
+local function calculateItemScaleForFootprint(item, itemName, gridUnit, cellsX, cellsZ)
     local _, itemSize = item:GetBoundingBox()
+    if itemSize.X <= 0 or itemSize.Z <= 0 then
+        return 1
+    end
+
+    local footprintPadding = getItemFootprintPadding(itemName)
     
-    -- Calculate scale to fit in one cell (use the larger dimension)
-    local scaleX = gridUnit / itemSize.X
-    local scaleZ = gridUnit / itemSize.Z
+    local scaleX = (gridUnit * cellsX * footprintPadding) / itemSize.X
+    local scaleZ = (gridUnit * cellsZ * footprintPadding) / itemSize.Z
     local scaleFactor = math.min(scaleX, scaleZ)
     
-    -- Always return 1 cell
-    return scaleFactor, 1, 1, 1
+    return scaleFactor
 end
 
 -- Function to create a ghost item
@@ -417,13 +837,15 @@ local function createGhostItem(itemName)
 
     newGhost.Name = "GhostItem"
     
-    -- Calculate and apply scaling to fit in ONE cell
+    -- Calculate and apply scaling to fit the item's base grid footprint.
     local gridUnit = getGridUnitSize()
-    currentScaleFactor = calculateItemScaleForOneCell(newGhost, gridUnit)
+    local cellsX, cellsZ = getItemBaseFootprint(itemName)
+    currentScaleFactor = calculateItemScaleForFootprint(newGhost, itemName, gridUnit, cellsX, cellsZ)
     
     -- Scale the model to fit in one cell
     local currentScale = newGhost:GetScale()
     newGhost:ScaleTo(currentScale * currentScaleFactor)
+    applyItemVisualAdjustments(newGhost, itemName)
     
     for _, desc in ipairs(newGhost:GetDescendants()) do
         if desc:IsA("BasePart") or desc:IsA("MeshPart") then
@@ -576,16 +998,18 @@ local function refreshInventoryUI()
             if placementMode then
                 destroyGhostItem()
                 placementMode = false
+                placementRotation = 0
                 placementIndicator.Visible = false
                 selectedItem = nil
                 removeGridVisualization()
             end
             
             selectedItem = item.itemName
+            placementRotation = 0
             placementMode = true
             placementIndicator.Visible = true
             placementIndicator.BackgroundColor3 = Color3.fromRGB(50, 150, 50)
-            indicatorText.Text = "Click to place | Click button to cancel"
+            indicatorText.Text = "Click to place | R to rotate | Click button to cancel"
             
             ghostItem = createGhostItem(selectedItem)
             createGridVisualization()
@@ -598,6 +1022,7 @@ deleteButton.MouseButton1Click:Connect(function()
     if placementMode then
         -- Exit placement mode
         placementMode = false
+        placementRotation = 0
         placementIndicator.Visible = false
         destroyGhostItem()
         selectedItem = nil
@@ -632,8 +1057,7 @@ local function updateHighlightBox(cellX, cellZ, cellsX, cellsZ, isValid)
     
     local plotTop = plotInfo.position.Y + plotInfo.size.Y / 2 + 0.1
     
-    -- Get center of the cell using gridToWorld
-    local cellCenter = gridToWorld(cellX, cellZ, plotInfo, gridUnit)
+    local cellCenter = getFootprintCenter(cellX, cellZ, cellsX, cellsZ, plotInfo, gridUnit)
     
     -- Update highlight box (for 1x1 cells, size is just gridUnit)
     highlightBox.Size = Vector3.new(cellsX * gridUnit, 0.2, cellsZ * gridUnit)
@@ -686,38 +1110,36 @@ local function updateGhostPosition()
             end
             
             local cellX, cellZ = worldToGrid(hitPos, plotInfo, gridUnit)
+            local cellsX, cellsZ = getRotatedFootprint(selectedItem, placementRotation)
             
-            -- Each item occupies exactly 1 cell
-            if not areCellsValid(cellX, cellZ, 1, plotInfo, gridUnit) then
+            if not areCellsValid(cellX, cellZ, cellsX, cellsZ, plotInfo, gridUnit) then
                 ghostItem.Parent = nil
                 placementIndicator.Visible = true
                 placementIndicator.BackgroundColor3 = Color3.fromRGB(200, 50, 50)
                 indicatorText.Text = "Outside plot! | Click button to cancel"
                 canPlace = false
-                updateHighlightBox(cellX, cellZ, 1, 1, false)
+                updateHighlightBox(cellX, cellZ, cellsX, cellsZ, false)
                 return
             end
             
-            if isCellOccupied(cellX, cellZ, plotInfo, gridUnit) then
+            if isAreaOccupied(cellX, cellZ, cellsX, cellsZ, plotInfo, gridUnit) then
                 ghostItem.Parent = nil
                 placementIndicator.Visible = true
                 placementIndicator.BackgroundColor3 = Color3.fromRGB(200, 50, 50)
                 indicatorText.Text = "Space occupied! | Click button to cancel"
                 canPlace = false
-                updateHighlightBox(cellX, cellZ, 1, 1, false)
+                updateHighlightBox(cellX, cellZ, cellsX, cellsZ, false)
                 return
             end
             
             ghostItem.Parent = workspace.CurrentCamera
             placementIndicator.Visible = true
             placementIndicator.BackgroundColor3 = Color3.fromRGB(50, 150, 50)
-            indicatorText.Text = "Click to place | Click button to cancel"
+            indicatorText.Text = "Click to place | R to rotate | Click button to cancel"
             
-            -- Update highlight box for 1 cell
-            updateHighlightBox(cellX, cellZ, 1, 1, true)
+            updateHighlightBox(cellX, cellZ, cellsX, cellsZ, true)
             
-            -- Position item at center of the cell
-            local worldPos = gridToWorld(cellX, cellZ, plotInfo, gridUnit)
+            local worldPos = getFootprintCenter(cellX, cellZ, cellsX, cellsZ, plotInfo, gridUnit)
             local itemHeight = getItemHeight(ghostItem)
             local finalY = worldPos.Y + itemHeight / 2
             
@@ -726,7 +1148,7 @@ local function updateGhostPosition()
                 worldPos.X,
                 finalY,
                 worldPos.Z
-            ))
+            ) * getRotationCFrame(placementRotation))
         end
     end
 end
@@ -734,52 +1156,7 @@ end
 -- Function to update deletion hover
 local function updateDeletionHover()
     if deletionMode then
-        local camera = workspace.CurrentCamera
-        local mousePos = UserInputService:GetMouseLocation()
-        local ray = camera:ViewportPointToRay(mousePos.X, mousePos.Y)
-        
-        local rayParams = RaycastParams.new()
-        rayParams.FilterType = Enum.RaycastFilterType.Exclude
-        rayParams.FilterDescendantsInstances = {}
-        if player.Character then
-            table.insert(rayParams.FilterDescendantsInstances, player.Character)
-        end
-        
-        local result = workspace:Raycast(ray.Origin, ray.Direction * 1000, rayParams)
-        
-        local foundItem = nil
-        
-        if result and result.Instance then
-            local target = result.Instance
-            
-            -- Check if we hit a plot directly - don't allow deletion
-            if target:GetAttribute("IsPlot") then
-                -- Can't delete plots!
-                if hoveredDeleteItem then
-                    removeSelectionBox()
-                    hoveredDeleteItem = nil
-                end
-                return
-            end
-            
-            while target and target.Parent and target.Parent ~= workspace do
-                -- Check if this is a plot - don't allow deletion
-                if target:GetAttribute("IsPlot") then
-                    foundItem = nil
-                    break
-                end
-                
-                if target:GetAttribute("Owner") then
-                    break
-                end
-                target = target.Parent
-            end
-            
-            -- Make sure we're not trying to delete a plot
-            if target and target:GetAttribute("Owner") == player.UserId and not target:GetAttribute("IsPlot") then
-                foundItem = target
-            end
-        end
+        local foundItem = getOwnedPlacedItemFromRay()
         
         -- Update hover state
         if foundItem ~= hoveredDeleteItem then
@@ -798,11 +1175,83 @@ local function updateDeletionHover()
     end
 end
 
+local function updatePlacedItemHoverMenu()
+    if placementMode or deletionMode then
+        hoveredPlacedItem = nil
+        placedItemHoverStartedAt = nil
+        placedItemHoverEndedAt = nil
+        hideItemContextMenu()
+        return
+    end
+
+    if isMouseInsideContextMenu() then
+        placedItemHoverEndedAt = nil
+        return
+    end
+
+    local foundItem = getOwnedPlacedItemFromRay()
+    if not foundItem then
+        hoveredPlacedItem = nil
+        placedItemHoverStartedAt = nil
+
+        if itemContextMenu and itemContextMenu.Visible then
+            placedItemHoverEndedAt = placedItemHoverEndedAt or tick()
+            if tick() - placedItemHoverEndedAt >= 0.7 then
+                placedItemHoverEndedAt = nil
+                hideItemContextMenu()
+            end
+        else
+            placedItemHoverEndedAt = nil
+        end
+
+        return
+    end
+
+    placedItemHoverEndedAt = nil
+
+    if foundItem ~= hoveredPlacedItem then
+        hoveredPlacedItem = foundItem
+        placedItemHoverStartedAt = tick()
+
+        if contextMenuTarget ~= foundItem then
+            hideItemContextMenu()
+        end
+    end
+
+    if not itemContextMenu or not itemContextMenu.Visible then
+        if placedItemHoverStartedAt and tick() - placedItemHoverStartedAt >= 0.5 then
+            showItemContextMenu(foundItem)
+        end
+    end
+end
+
 -- Handle mouse click
 local function onInputBegan(input, gameProcessed)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 and itemContextMenu and itemContextMenu.Visible and isMouseInsideContextMenu() then
+        rotateContextMenuTarget()
+        return
+    end
+
     if gameProcessed then return end
+
+    if input.UserInputType == Enum.UserInputType.Keyboard and input.KeyCode == Enum.KeyCode.R then
+        if placementMode and ghostItem then
+            placementRotation = (placementRotation + 1) % 4
+            updateGhostPosition()
+        end
+        return
+    end
     
     if input.UserInputType == Enum.UserInputType.MouseButton1 then
+        if itemContextMenu and itemContextMenu.Visible then
+            if isMouseInsideContextMenu() then
+                rotateContextMenuTarget()
+                return
+            end
+
+            hideItemContextMenu()
+        end
+
         -- Deletion mode
         if deletionMode then
             if hoveredDeleteItem then
@@ -832,7 +1281,8 @@ local function onInputBegan(input, gameProcessed)
             
             if result then
                 local cellX, cellZ = worldToGrid(result.Position, plotInfo, gridUnit)
-                local worldPos = gridToWorld(cellX, cellZ, plotInfo, gridUnit)
+                local cellsX, cellsZ = getRotatedFootprint(selectedItem, placementRotation)
+                local worldPos = getFootprintCenter(cellX, cellZ, cellsX, cellsZ, plotInfo, gridUnit)
                 local itemHeight = getItemHeight(ghostItem)
                 local finalY = worldPos.Y + itemHeight / 2
                 
@@ -842,11 +1292,10 @@ local function onInputBegan(input, gameProcessed)
                     worldPos.Z
                 )
                 
-                -- Use the cached scale factor (already calculated in createGhostItem)
-                -- Send position and scale factor to server (always 1x1 cells)
-                placeItemRemote:FireServer(selectedItem, position, currentScaleFactor, gridUnit, 1, 1)
+                placeItemRemote:FireServer(selectedItem, position, currentScaleFactor, gridUnit, cellsX, cellsZ, placementRotation, cellX, cellZ)
                 
                 placementMode = false
+                placementRotation = 0
                 placementIndicator.Visible = false
                 destroyGhostItem()
                 selectedItem = nil
@@ -878,6 +1327,7 @@ RunService.RenderStepped:Connect(function()
     updateGridIfNeeded()
     updateGhostPosition()
     updateDeletionHover()
+    updatePlacedItemHoverMenu()
 end)
 
 -- Listen for inventory updates (e.g., when shop closes after purchase)

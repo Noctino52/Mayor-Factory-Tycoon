@@ -78,6 +78,15 @@ local ITEMS = {
 		isMachine = false,
 		isProduction = false,
 	},
+	Conveyor = {
+		name = "Conveyor",
+		icon = "=>",
+		category = "transportation",
+		cost = 25,
+		type = "conveyor",
+		isMachine = false,
+		isProduction = false,
+	},
 	TreeFarm = {
 		name = "TreeFarm",
 		icon = "🌳",

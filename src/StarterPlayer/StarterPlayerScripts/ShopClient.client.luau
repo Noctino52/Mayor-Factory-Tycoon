@@ -27,7 +27,8 @@ local shopTransactionResultRemote = ReplicatedStorage:WaitForChild("ShopTransact
 
 local CATEGORY_ORDER = {
 	machine = 1,
-	decoration = 2,
+	transportation = 2,
+	decoration = 3,
 }
 
 local ui = ShopUI.Create(playerGui)

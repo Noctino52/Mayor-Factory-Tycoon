@@ -10,6 +10,8 @@ local DataStoreService = game:GetService("DataStoreService")
 -- Import modules
 local PlayerProgress = require(game.ServerScriptService.PlayerProgress)
 local Definitions = require(game.ReplicatedStorage.Shared.Definitions)
+local ConveyorSystem = require(game.ServerScriptService.ConveyorSystem)
+local MachineSystem = require(game.ServerScriptService.MachineSystem)
 
 -- Configuration
 local GRID_UNIT_SIZE = 8 -- Fixed grid size in studs
@@ -21,34 +23,169 @@ local playerDataStore = DataStoreService:GetDataStore("TycoonFactoryData")
 
 -- Fallback storage if DataStore fails
 local fallbackDataStore = {}
+local playerData = {}
 
 -- Get grid unit size (now fixed)
 local function getGridUnitSize()
     return GRID_UNIT_SIZE
 end
 
+local function normalizeRotation(rotation)
+    return math.floor(tonumber(rotation) or 0) % 4
+end
+
+local function getRotationCFrame(rotation)
+    return CFrame.Angles(0, normalizeRotation(rotation) * math.pi / 2, 0)
+end
+
+local function getFootprintCenter(cellX, cellZ, cellsX, cellsZ, plotInfo, y)
+    return Vector3.new(
+        plotInfo.position.X + (cellX + cellsX / 2) * GRID_UNIT_SIZE,
+        y,
+        plotInfo.position.Z + (cellZ + cellsZ / 2) * GRID_UNIT_SIZE
+    )
+end
+
+local function roundToNearestCell(value)
+    return math.floor(value + 0.5)
+end
+
+local function getItemBaseFootprint(itemName)
+    local itemDef = Definitions.GetItem(itemName)
+    if itemDef and itemDef.gridSize then
+        return itemDef.gridSize.x or itemDef.gridSize.X or itemDef.gridSize[1] or 1,
+               itemDef.gridSize.z or itemDef.gridSize.Z or itemDef.gridSize[2] or 1
+    end
+
+    if itemDef and itemDef.cells then
+        return itemDef.cells.x or itemDef.cells.X or itemDef.cells[1] or 1,
+               itemDef.cells.z or itemDef.cells.Z or itemDef.cells[2] or 1
+    end
+
+    if itemName and (itemName:find("CurvedConveyor") or itemName:find("ConveyorCurve") or itemName:find("ConveyorCorner")) then
+        return 2, 1
+    end
+
+    return 1, 1
+end
+
+local function getRotatedFootprint(itemName, rotation)
+    local cellsX, cellsZ = getItemBaseFootprint(itemName)
+    if normalizeRotation(rotation) % 2 == 1 then
+        return cellsZ, cellsX
+    end
+
+    return cellsX, cellsZ
+end
+
+local ITEM_VISUAL_ADJUSTMENTS = {
+    Conveyor = {
+        maxHeight = 1.2,
+    },
+}
+
+local function getAdjustedItemHeight(itemName, height)
+    local adjustment = ITEM_VISUAL_ADJUSTMENTS[itemName]
+    if not adjustment or not adjustment.maxHeight then
+        return height
+    end
+
+    return math.min(height, adjustment.maxHeight)
+end
+
+local function applyItemVisualAdjustments(item, itemName)
+    local adjustment = ITEM_VISUAL_ADJUSTMENTS[itemName]
+    if not adjustment or not adjustment.maxHeight then
+        return
+    end
+
+    local _, size = item:GetBoundingBox()
+    if size.Y <= adjustment.maxHeight or size.Y <= 0 then
+        return
+    end
+
+    local heightScale = adjustment.maxHeight / size.Y
+    for _, descendant in ipairs(item:GetDescendants()) do
+        if descendant:IsA("BasePart") then
+            descendant.Size = Vector3.new(
+                descendant.Size.X,
+                math.max(0.05, descendant.Size.Y * heightScale),
+                descendant.Size.Z
+            )
+        end
+    end
+end
+
+local function areCellsValid(cellX, cellZ, cellsX, cellsZ, plotInfo)
+    if not plotInfo or cellX == nil or cellZ == nil then
+        return false
+    end
+
+    local halfPlotCellsX = math.floor((plotInfo.size.X / 2) / GRID_UNIT_SIZE)
+    local halfPlotCellsZ = math.floor((plotInfo.size.Z / 2) / GRID_UNIT_SIZE)
+
+    for dx = 0, cellsX - 1 do
+        for dz = 0, cellsZ - 1 do
+            local checkX = cellX + dx
+            local checkZ = cellZ + dz
+
+            if checkX < -halfPlotCellsX or checkX >= halfPlotCellsX or checkZ < -halfPlotCellsZ or checkZ >= halfPlotCellsZ then
+                return false
+            end
+        end
+    end
+
+    return true
+end
+
+local function doFootprintsOverlap(ax, az, aw, ad, bx, bz, bw, bd)
+    return ax < bx + bw and ax + aw > bx and az < bz + bd and az + ad > bz
+end
+
+local function isAreaOccupied(player, cellX, cellZ, cellsX, cellsZ, ignoredItem)
+    local data = playerData[player]
+    if not data then
+        return false
+    end
+
+    for _, placedItem in ipairs(data.placedItems) do
+        if placedItem and placedItem.Parent and placedItem ~= ignoredItem then
+            local itemCellX = placedItem:GetAttribute("CellX")
+            local itemCellZ = placedItem:GetAttribute("CellZ")
+            local itemCellsX = placedItem:GetAttribute("CellsX") or 1
+            local itemCellsZ = placedItem:GetAttribute("CellsZ") or 1
+
+            if itemCellX ~= nil and itemCellZ ~= nil and doFootprintsOverlap(cellX, cellZ, cellsX, cellsZ, itemCellX, itemCellZ, itemCellsX, itemCellsZ) then
+                return true
+            end
+        end
+    end
+
+    return false
+end
+
 -- Get templates folder
 local sharedFolder = ReplicatedStorage:WaitForChild("Shared")
 local templatesFolder = sharedFolder:WaitForChild("ItemTemplates")
 
--- Clean up all sounds from templates as early as possible.
-local function removeAllSounds(model)
+-- Clean up template artifacts that should never run from placed/cloned items.
+local function removeRuntimeArtifacts(model)
     for _, descendant in ipairs(model:GetDescendants()) do
-        if descendant:IsA("Sound") then
+        if descendant:IsA("Sound") or descendant:IsA("Script") or descendant:IsA("LocalScript") then
             descendant:Destroy()
         end
     end
 end
 
 for _, template in ipairs(templatesFolder:GetChildren()) do
-    removeAllSounds(template)
+    removeRuntimeArtifacts(template)
 end
 templatesFolder.DescendantAdded:Connect(function(descendant)
-    if descendant:IsA("Sound") then
+    if descendant:IsA("Sound") or descendant:IsA("Script") or descendant:IsA("LocalScript") then
         descendant:Destroy()
     end
 end)
-print("[InventoryManager] Removed sounds from all templates")
+print("[InventoryManager] Removed runtime artifacts from all templates")
 
 -- Create RemoteEvents
 local placeItemRemote = Instance.new("RemoteEvent")
@@ -59,9 +196,17 @@ local getInventoryRemote = Instance.new("RemoteFunction")
 getInventoryRemote.Name = "GetInventory"
 getInventoryRemote.Parent = ReplicatedStorage
 
+local spawnProductionItemRemote = Instance.new("RemoteFunction")
+spawnProductionItemRemote.Name = "SpawnProductionItem"
+spawnProductionItemRemote.Parent = ReplicatedStorage
+
 local deleteItemRemote = Instance.new("RemoteEvent")
 deleteItemRemote.Name = "DeleteItem"
 deleteItemRemote.Parent = ReplicatedStorage
+
+local rotateItemRemote = Instance.new("RemoteEvent")
+rotateItemRemote.Name = "RotateItem"
+rotateItemRemote.Parent = ReplicatedStorage
 
 -- Create new RemoteEvent for plot assignment
 local getPlotRemote = Instance.new("RemoteFunction")
@@ -108,7 +253,6 @@ shopTransactionResultRemote.Parent = ReplicatedStorage
 local MAX_ITEMS_PER_PLOT = 20
 
 -- Player data storage
-local playerData = {}
 
 -- Plot assignment tracking (plotId -> player)
 local plotAssignments = {} -- {plotId = player.UserId}
@@ -126,6 +270,101 @@ local function getTemplateAlias(itemName)
     return nil
 end
 
+local function createConveyorTemplate()
+    local existing = templatesFolder:FindFirstChild("Conveyor")
+    if existing then
+        return existing
+    end
+
+    local conveyor = Instance.new("Model")
+    conveyor.Name = "Conveyor"
+
+    local base = Instance.new("Part")
+    base.Name = "Belt"
+    base.Size = Vector3.new(7.6, 0.45, 7.6)
+    base.CFrame = CFrame.new(0, 0.225, 0)
+    base.Anchored = true
+    base.CanCollide = true
+    base.Material = Enum.Material.Metal
+    base.Color = Color3.fromRGB(55, 60, 64)
+    base.Parent = conveyor
+
+    local arrow = Instance.new("Part")
+    arrow.Name = "DirectionArrow"
+    arrow.Size = Vector3.new(3.5, 0.08, 1.2)
+    arrow.CFrame = CFrame.new(0.65, 0.5, 0)
+    arrow.Anchored = true
+    arrow.CanCollide = false
+    arrow.CanQuery = false
+    arrow.CanTouch = false
+    arrow.Material = Enum.Material.Neon
+    arrow.Color = Color3.fromRGB(80, 190, 255)
+    arrow.Parent = conveyor
+
+    local arrowHead = Instance.new("WedgePart")
+    arrowHead.Name = "DirectionArrowHead"
+    arrowHead.Size = Vector3.new(1.2, 0.08, 1.8)
+    arrowHead.CFrame = CFrame.new(2.75, 0.5, 0) * CFrame.Angles(0, 0, math.rad(-90))
+    arrowHead.Anchored = true
+    arrowHead.CanCollide = false
+    arrowHead.CanQuery = false
+    arrowHead.CanTouch = false
+    arrowHead.Material = Enum.Material.Neon
+    arrowHead.Color = Color3.fromRGB(80, 190, 255)
+    arrowHead.Parent = conveyor
+
+    conveyor.PrimaryPart = base
+    conveyor.Parent = templatesFolder
+
+    return conveyor
+end
+
+local function createSawmillTemplate()
+    local existing = templatesFolder:FindFirstChild("Sawmill")
+    if existing then
+        return existing
+    end
+
+    local sawmill = Instance.new("Model")
+    sawmill.Name = "Sawmill"
+
+    local base = Instance.new("Part")
+    base.Name = "Base"
+    base.Size = Vector3.new(7.4, 0.45, 7.4)
+    base.CFrame = CFrame.new(0, 0.225, 0)
+    base.Anchored = true
+    base.CanCollide = true
+    base.Material = Enum.Material.WoodPlanks
+    base.Color = Color3.fromRGB(118, 82, 48)
+    base.Parent = sawmill
+
+    local body = Instance.new("Part")
+    body.Name = "Body"
+    body.Size = Vector3.new(5.8, 1.5, 3.4)
+    body.CFrame = CFrame.new(0, 1.2, 0)
+    body.Anchored = true
+    body.CanCollide = true
+    body.Material = Enum.Material.Metal
+    body.Color = Color3.fromRGB(92, 96, 96)
+    body.Parent = sawmill
+
+    local blade = Instance.new("Part")
+    blade.Name = "Blade"
+    blade.Shape = Enum.PartType.Cylinder
+    blade.Size = Vector3.new(0.25, 2.5, 2.5)
+    blade.CFrame = CFrame.new(0.4, 2.05, 0) * CFrame.Angles(0, 0, math.rad(90))
+    blade.Anchored = true
+    blade.CanCollide = false
+    blade.Material = Enum.Material.Metal
+    blade.Color = Color3.fromRGB(205, 210, 212)
+    blade.Parent = sawmill
+
+    sawmill.PrimaryPart = base
+    sawmill.Parent = templatesFolder
+
+    return sawmill
+end
+
 local function ensureItemTemplate(itemName)
     local template = templatesFolder:FindFirstChild(itemName)
     if template then
@@ -136,6 +375,14 @@ local function ensureItemTemplate(itemName)
     if alias then
         alias.Name = itemName
         return alias
+    end
+
+    if itemName == "Conveyor" then
+        return createConveyorTemplate()
+    end
+
+    if itemName == "Sawmill" then
+        return createSawmillTemplate()
     end
 
     return nil
@@ -471,7 +718,10 @@ local function savePlayerData(player)
                 position = {item:GetPivot().Position.X, item:GetPivot().Position.Y, item:GetPivot().Position.Z},
                 scaleFactor = item:GetAttribute("ScaleFactor") or 1,
                 cellsX = item:GetAttribute("CellsX") or 1,
-                cellsZ = item:GetAttribute("CellsZ") or 1
+                cellsZ = item:GetAttribute("CellsZ") or 1,
+                cellX = item:GetAttribute("CellX"),
+                cellZ = item:GetAttribute("CellZ"),
+                rotation = normalizeRotation(item:GetAttribute("Rotation"))
             })
         end
     end
@@ -527,12 +777,13 @@ local function spawnSavedItems(player, itemsData, plotId)
         if template then
             local newItem = template:Clone()
             
-            -- Remove all sounds from the model
-            removeAllSounds(newItem)
+            -- Remove template-only runtime artifacts from the model.
+            removeRuntimeArtifacts(newItem)
             
             -- Apply scale
             local currentScale = newItem:GetScale()
             newItem:ScaleTo(currentScale * (itemInfo.scaleFactor or 1))
+            applyItemVisualAdjustments(newItem, itemInfo.itemName)
             
             -- Enable collisions and anchor
             for _, desc in ipairs(newItem:GetDescendants()) do
@@ -544,13 +795,29 @@ local function spawnSavedItems(player, itemsData, plotId)
             
             -- Position the item
             local position = Vector3.new(itemInfo.position[1], itemInfo.position[2], itemInfo.position[3])
-            newItem:PivotTo(CFrame.new(position))
+            local rotation = normalizeRotation(itemInfo.rotation)
+            local cellX = itemInfo.cellX
+            local cellZ = itemInfo.cellZ
+            local cellsX = itemInfo.cellsX or 1
+            local cellsZ = itemInfo.cellsZ or 1
+            if cellX == nil or cellZ == nil then
+                local plotInfo = getPlotInfo(plotId)
+                if plotInfo then
+                    cellX = roundToNearestCell((position.X - plotInfo.position.X) / GRID_UNIT_SIZE - cellsX / 2)
+                    cellZ = roundToNearestCell((position.Z - plotInfo.position.Z) / GRID_UNIT_SIZE - cellsZ / 2)
+                end
+            end
+
+            newItem:PivotTo(CFrame.new(position) * getRotationCFrame(rotation))
             
             -- Set attributes
             newItem:SetAttribute("Owner", player.UserId)
             newItem:SetAttribute("ItemName", itemInfo.itemName)
-            newItem:SetAttribute("CellsX", itemInfo.cellsX or 1)
-            newItem:SetAttribute("CellsZ", itemInfo.cellsZ or 1)
+            newItem:SetAttribute("CellsX", cellsX)
+            newItem:SetAttribute("CellsZ", cellsZ)
+            newItem:SetAttribute("CellX", cellX)
+            newItem:SetAttribute("CellZ", cellZ)
+            newItem:SetAttribute("Rotation", rotation)
             newItem:SetAttribute("ScaleFactor", itemInfo.scaleFactor or 1)
             
             -- Parent to player's items folder
@@ -558,6 +825,7 @@ local function spawnSavedItems(player, itemsData, plotId)
             if playerItemsFolder then
                 newItem.Parent = playerItemsFolder
                 table.insert(data.placedItems, newItem)
+                MachineSystem.RegisterPlacedItem(player, newItem)
             end
         end
     end
@@ -647,6 +915,8 @@ end
 local function onPlayerRemoving(player)
     -- Save player data before leaving
     savePlayerData(player)
+
+    MachineSystem.ClearPlayer(player)
     
     -- Clear player progress from cache
     PlayerProgress.ClearPlayerData(player)
@@ -665,8 +935,8 @@ local function onPlayerRemoving(player)
     playerData[player] = nil
 end
 
--- Handle place item request (now with separate cellsX and cellsZ)
-placeItemRemote.OnServerEvent:Connect(function(player, itemName, position, scaleFactor, gridUnit, cellsX, cellsZ)
+-- Handle place item request (now with footprint cells and rotation)
+placeItemRemote.OnServerEvent:Connect(function(player, itemName, position, scaleFactor, gridUnit, cellsX, cellsZ, rotation, cellX, cellZ)
     local data = playerData[player]
     if not data then return end
     data.inventory = normalizeInventory(data.inventory)
@@ -707,13 +977,25 @@ placeItemRemote.OnServerEvent:Connect(function(player, itemName, position, scale
     -- Apply scaling if provided
     if not scaleFactor then scaleFactor = 1 end
     if not gridUnit then gridUnit = getGridUnitSize() end
-    if not cellsX then cellsX = 1 end
-    if not cellsZ then cellsZ = 1 end
+    rotation = normalizeRotation(rotation)
+    cellsX, cellsZ = getRotatedFootprint(itemName, rotation)
+    cellX = math.floor(tonumber(cellX) or 0)
+    cellZ = math.floor(tonumber(cellZ) or 0)
+
+    local plotInfo = getPlotInfo(plotId)
+    if not areCellsValid(cellX, cellZ, cellsX, cellsZ, plotInfo) then
+        return false, "Position outside your plot bounds"
+    end
+
+    if isAreaOccupied(player, cellX, cellZ, cellsX, cellsZ) then
+        return false, "Space occupied"
+    end
     
-    -- Check if position is within player's plot (considering scaled size)
-    local itemSize
-    local cframe, size = template:GetBoundingBox()
-    itemSize = size * scaleFactor
+    -- Check if position is within player's plot (considering rotated grid footprint)
+    local _, size = template:GetBoundingBox()
+    local itemSize = Vector3.new(cellsX * GRID_UNIT_SIZE, getAdjustedItemHeight(itemName, size.Y * scaleFactor), cellsZ * GRID_UNIT_SIZE)
+    local plotTopY = plotInfo.position.Y + plotInfo.size.Y / 2
+    position = getFootprintCenter(cellX, cellZ, cellsX, cellsZ, plotInfo, plotTopY + itemSize.Y / 2)
     if not isWithinPlot(position, itemSize, plotId) then
         return false, "Position outside your plot bounds"
     end
@@ -721,12 +1003,13 @@ placeItemRemote.OnServerEvent:Connect(function(player, itemName, position, scale
     -- Place the item
     local newItem = template:Clone()
     
-    -- Remove all sounds from the model
-    removeAllSounds(newItem)
+    -- Remove template-only runtime artifacts from the model.
+    removeRuntimeArtifacts(newItem)
     
-    -- Apply scale to fit in one cell
+    -- Apply client-computed scale for the item's grid footprint.
     local currentScale = newItem:GetScale()
     newItem:ScaleTo(currentScale * scaleFactor)
+    applyItemVisualAdjustments(newItem, itemName)
     
     -- Enable collisions on all parts
     for _, desc in ipairs(newItem:GetDescendants()) do
@@ -736,13 +1019,16 @@ placeItemRemote.OnServerEvent:Connect(function(player, itemName, position, scale
         end
     end
     
-    newItem:PivotTo(CFrame.new(position))
+    newItem:PivotTo(CFrame.new(position) * getRotationCFrame(rotation))
     newItem.Parent = workspace:FindFirstChild("PlayerItems_" .. player.UserId)
     
     newItem:SetAttribute("Owner", player.UserId)
     newItem:SetAttribute("ItemName", itemName)
     newItem:SetAttribute("CellsX", cellsX) -- Store how many cells in X direction
     newItem:SetAttribute("CellsZ", cellsZ) -- Store how many cells in Z direction
+    newItem:SetAttribute("CellX", cellX)
+    newItem:SetAttribute("CellZ", cellZ)
+    newItem:SetAttribute("Rotation", rotation)
     newItem:SetAttribute("ScaleFactor", scaleFactor) -- Store the scale factor
     
     -- Decrease inventory count
@@ -752,6 +1038,7 @@ placeItemRemote.OnServerEvent:Connect(function(player, itemName, position, scale
     end
     
     table.insert(data.placedItems, newItem)
+    MachineSystem.RegisterPlacedItem(player, newItem)
     
     -- Save after placing
     savePlayerData(player)
@@ -782,6 +1069,7 @@ deleteItemRemote.OnServerEvent:Connect(function(player, item)
     end
     
     local itemName = item:GetAttribute("ItemName") or "Unknown"
+    MachineSystem.UnregisterPlacedItem(player, item)
     
     -- Remove from placed items list
     for i, placedItem in ipairs(data.placedItems) do
@@ -815,6 +1103,58 @@ deleteItemRemote.OnServerEvent:Connect(function(player, item)
     -- Save after deleting
     savePlayerData(player)
     notifyInventoryUpdated(player)
+end)
+
+-- Handle rotate item request
+rotateItemRemote.OnServerEvent:Connect(function(player, itemOrPosition)
+    local data = playerData[player]
+    if not data then return end
+
+    local item = nil
+
+    if typeof(itemOrPosition) == "Instance" then
+        item = itemOrPosition
+    elseif typeof(itemOrPosition) == "Vector3" then
+        for _, placedItem in ipairs(data.placedItems) do
+            if placedItem and placedItem.Parent and (placedItem:GetPivot().Position - itemOrPosition).Magnitude < 0.1 then
+                item = placedItem
+                break
+            end
+        end
+    end
+
+    if not item or not item.Parent then return end
+    if item:GetAttribute("IsPlot") then return end
+
+    if item:GetAttribute("Owner") ~= player.UserId then
+        warn(player.Name .. " tried to rotate an item they don't own")
+        return
+    end
+
+    local itemName = item:GetAttribute("ItemName")
+    local nextRotation = normalizeRotation((item:GetAttribute("Rotation") or 0) + 1)
+    local pivot = item:GetPivot()
+    local cellsX, cellsZ = getRotatedFootprint(itemName, nextRotation)
+
+    local nextPosition = pivot.Position
+    local cellX = item:GetAttribute("CellX")
+    local cellZ = item:GetAttribute("CellZ")
+    local plotId = playerPlots[player.UserId]
+    local plotInfo = plotId and getPlotInfo(plotId)
+    if cellX ~= nil and cellZ ~= nil and plotInfo then
+        if not areCellsValid(cellX, cellZ, cellsX, cellsZ, plotInfo) or isAreaOccupied(player, cellX, cellZ, cellsX, cellsZ, item) then
+            return
+        end
+
+        nextPosition = getFootprintCenter(cellX, cellZ, cellsX, cellsZ, plotInfo, pivot.Position.Y)
+    end
+
+    item:PivotTo(CFrame.new(nextPosition) * getRotationCFrame(nextRotation))
+    item:SetAttribute("Rotation", nextRotation)
+    item:SetAttribute("CellsX", cellsX)
+    item:SetAttribute("CellsZ", cellsZ)
+
+    savePlayerData(player)
 end)
 
 -- Handle get inventory request
@@ -865,12 +1205,23 @@ getPlacedItemsRemote.OnServerInvoke = function(player)
             table.insert(placedItemsList, {
                 name = item:GetAttribute("ItemName"),
                 position = item:GetPivot().Position,
-                scaleFactor = item:GetAttribute("ScaleFactor") or 1
+                scaleFactor = item:GetAttribute("ScaleFactor") or 1,
+                rotation = normalizeRotation(item:GetAttribute("Rotation"))
             })
         end
     end
     
     return placedItemsList
+end
+
+-- Handle production item spawn requests for machines/debug tools.
+spawnProductionItemRemote.OnServerInvoke = function(player, itemName, cellX, cellZ, conveyor)
+    local activeItem, message = ConveyorSystem.SpawnProductionItem(player, itemName, cellX, cellZ, conveyor)
+    if not activeItem then
+        return false, message
+    end
+
+    return true, "Spawned"
 end
 
 -- Handle get town prestige request
@@ -983,6 +1334,31 @@ local function protectAllPlots()
         end
     end
 end
+
+ConveyorSystem.Initialize({
+    getPlayerPlot = function(player)
+        local plotId = playerPlots[player.UserId]
+        if not plotId then
+            return nil
+        end
+
+        return getPlotInfo(plotId)
+    end,
+
+    getPlacedItems = function(player)
+        local data = playerData[player]
+        if not data then
+            return {}
+        end
+
+        return data.placedItems
+    end,
+
+    addMoney = function(player, amount)
+        return PlayerProgress.AddMoney(player, amount)
+    end,
+})
+MachineSystem.Initialize()
 
 -- Setup players
 Players.PlayerAdded:Connect(onPlayerAdded)
