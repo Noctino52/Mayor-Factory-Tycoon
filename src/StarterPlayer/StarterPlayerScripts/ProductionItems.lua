@@ -15,6 +15,7 @@ local ITEM_COLORS = {
 
 local ITEM_MAX_BOUNDS = {
     IronOre = Vector3.new(1.05, 0.75, 1.05),
+    Plank = Vector3.new(1.35, 0.45, 1.35),
 }
 
 function ProductionItems.GetColor(itemName)

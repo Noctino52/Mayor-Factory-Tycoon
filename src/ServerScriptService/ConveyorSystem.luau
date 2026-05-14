@@ -25,30 +25,13 @@ local ITEM_HEIGHT_OFFSET = 0.65
 local activeItems = {}
 local dependencies = nil
 local initialized = false
+local machineInputHandler = nil
 
 local productionItemsFolder = workspace:FindFirstChild("ProductionItems")
 if not productionItemsFolder then
     productionItemsFolder = Instance.new("Folder")
     productionItemsFolder.Name = "ProductionItems"
     productionItemsFolder.Parent = workspace
-end
-
-local function normalizeRotation(rotation)
-    return math.floor(tonumber(rotation) or 0) % 4
-end
-
-local function getDirectionForRotation(rotation)
-    rotation = normalizeRotation(rotation)
-
-    if rotation == 1 then
-        return 0, 1
-    elseif rotation == 2 then
-        return -1, 0
-    elseif rotation == 3 then
-        return 0, -1
-    end
-
-    return 1, 0
 end
 
 local function worldDirectionToGrid(direction)
@@ -328,39 +311,27 @@ local function sellItem(activeItem)
 end
 
 local function feedMachine(cellInfo, activeItem)
-    local machineDef = cellInfo.machineDef
-    if not machineDef or machineDef.type ~= "processor" or machineDef.inputItem ~= activeItem.itemName then
+    if not machineInputHandler then
         destroyProductionItem(activeItem, true)
-        return
+        return false
     end
 
-    local player = activeItem.player
-    local outputItem = machineDef.outputItem
-    local machine = cellInfo.instance
+    local accepted, message = machineInputHandler(activeItem.player, cellInfo.instance, activeItem.itemName)
+    if accepted then
+        activeItem.waitingForMachine = false
+        destroyProductionItem(activeItem, false)
+        return true
+    end
 
-    destroyProductionItem(activeItem, false)
+    if message == "Machine input queue is full" then
+        activeItem.waitingForMachine = true
+        activeItem.nextMachineFeedRetry = tick() + 0.25
+        return false
+    end
 
-    task.delay(machineDef.processingTime or 1, function()
-        if machine and machine.Parent and player and player.Parent then
-            local outputCellX = machine:GetAttribute("CellX") or 0
-            local outputCellZ = machine:GetAttribute("CellZ") or 0
-            local dx, dz = getDirectionForRotation(machine:GetAttribute("Rotation"))
-            local cellsX = machine:GetAttribute("CellsX") or 1
-            local cellsZ = machine:GetAttribute("CellsZ") or 1
-
-            if dx > 0 then
-                outputCellX += cellsX
-            elseif dx < 0 then
-                outputCellX -= 1
-            elseif dz > 0 then
-                outputCellZ += cellsZ
-            elseif dz < 0 then
-                outputCellZ -= 1
-            end
-
-            ConveyorSystem.SpawnProductionItem(player, outputItem, outputCellX, outputCellZ)
-        end
-    end)
+    activeItem.waitingForMachine = false
+    destroyProductionItem(activeItem, true)
+    return false
 end
 
 local function handleArrival(activeItem)
@@ -368,6 +339,7 @@ local function handleArrival(activeItem)
     activeItem.targetCellZ = nil
     activeItem.segmentProgress = 0
     activeItem.isMoving = false
+    activeItem.waitingForMachine = false
 
     if activeItem.model and activeItem.model.Parent then
         activeItem.model:SetAttribute("CellX", activeItem.cellX)
@@ -392,6 +364,22 @@ local function handleArrival(activeItem)
 end
 
 local function tryStartNextSegment(activeItem)
+    if activeItem.waitingForMachine then
+        if activeItem.nextMachineFeedRetry and tick() < activeItem.nextMachineFeedRetry then
+            return
+        end
+
+        local cellInfo = getCellInfo(activeItem.player, activeItem.cellX, activeItem.cellZ)
+        if cellInfo and cellInfo.type == "machine" then
+            feedMachine(cellInfo, activeItem)
+        else
+            activeItem.waitingForMachine = false
+            destroyProductionItem(activeItem, true)
+        end
+
+        return
+    end
+
     local currentCell = getCellInfo(activeItem.player, activeItem.cellX, activeItem.cellZ)
     local dx = (currentCell and currentCell.directionX) or 1
     local dz = (currentCell and currentCell.directionZ) or 0
@@ -487,6 +475,7 @@ function ConveyorSystem.SpawnProductionItem(player, itemName, cellX, cellZ, conv
             [cellKey(cellX, cellZ)] = true,
         },
         destroyOnArrival = false,
+        waitingForMachine = false,
         isMoving = false,
     }
 
@@ -523,6 +512,10 @@ end
 
 function ConveyorSystem.GetActiveItemCount()
     return #activeItems
+end
+
+function ConveyorSystem.SetMachineInputHandler(handler)
+    machineInputHandler = handler
 end
 
 return ConveyorSystem

@@ -37,7 +37,8 @@
         "ProductionItemTemplates": {
           "$className": "Folder",
           "Log": {"$path": "src/Workspace/Models/Log.rbxm"},
-          "IronOre": {"$path": "src/Workspace/Models/Iron ore.rbxm"}
+          "IronOre": {"$path": "src/Workspace/Models/Iron ore.rbxm"},
+          "Plank": {"$path": "src/Workspace/Models/Plank.rbxm"}
         }
       }
     },

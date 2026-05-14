@@ -146,6 +146,7 @@ local MACHINES = {
 		outputItem = "Plank",
 		conversionRate = 1,
 		processingTime = 3,
+		inputQueueSize = 2,
 		powerRequired = 8,
 	},
 }
