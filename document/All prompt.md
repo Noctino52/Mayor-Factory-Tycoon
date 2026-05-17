@@ -1111,16 +1111,847 @@ A questo punto hai:
 
 ---
 
+# 🟠 FASE 3: Consolidamento Core Loop & MVP Systems (Prompt 11-20)
+
+## 📝 PROMPT 11 - Implementare Conveyor Curvi e Routing a 4 Direzioni
+
+### Contesto
+Il core loop funziona con conveyor dritti, splitter e merger. Però il GDD richiede anche conveyor curvi/turn, altrimenti le fabbriche diventano troppo rigide e difficili da organizzare.
+
+Il sistema attuale usa rotazione e direzione dei conveyor, quindi bisogna estenderlo senza rompere:
+- Conveyor dritti
+- Splitter
+- Merger
+- Machine input
+- Sell zone
+
+### Obiettivo
+Aggiungere un item piazzabile **CurvedConveyor** che cambia direzione agli item di 90°, rispettando la rotazione del player.
+
+### Dettagli Tecnici
+
+**File da modificare:**
+- `src/ReplicatedStorage/Shared/Definitions.luau`
+- `src/ServerScriptService/ConveyorSystem.luau`
+- `src/ServerScriptService/InventoryManager.server.luau`
+- `src/StarterPlayer/StarterPlayerScripts/InventoryClient.client.luau`
+
+### Changes in Definitions
+
+Aggiungi un item:
+
+```lua
+CurvedConveyor = {
+  name = "CurvedConveyor",
+  icon = "↪",
+  category = "transportation",
+  cost = 35,
+  type = "curved_conveyor",
+  isMachine = false,
+  isProduction = false
+}
+```
+
+### Changes in ConveyorSystem
+
+Estendi il routing:
+
+```lua
+function RouteCurvedConveyor(cell, previousCellX, previousCellZ)
+  -- La curva ha 1 input e 1 output
+  -- rotation 0: input da sinistra -> output in alto
+  -- rotation 1: input dal basso -> output a destra
+  -- rotation 2: input da destra -> output in basso
+  -- rotation 3: input dall'alto -> output a sinistra
+end
+```
+
+Regole:
+- Se l'item entra dal lato corretto, viene instradato verso l'output
+- Se entra dal lato sbagliato, viene distrutto con animazione pop-out
+- La curva deve funzionare in tutte le 4 rotazioni
+- Il routing deve restare deterministico tile-to-tile
+
+### Specifiche
+
+1. **Template Fallback:** Se non esiste modello `.rbxm`, crea un modello semplice via script con base + freccia curva
+2. **Rotazione:** Deve usare lo stesso sistema di rotazione degli altri item
+3. **Salvataggio:** Salva `rotation`, `cellX`, `cellZ`, `scaleFactor`
+4. **Compatibilità:** Deve poter connettere conveyor -> curva -> conveyor, oppure curva -> macchina/sell zone
+
+### Cosa Verificare
+- [ ] Puoi comprare e piazzare CurvedConveyor
+- [ ] Premi R e la curva ruota correttamente
+- [ ] Un Log entra nella curva e cambia direzione
+- [ ] La curva funziona in tutte e 4 le rotazioni
+- [ ] Se un item entra dal lato sbagliato, scompare con pop-out
+- [ ] Logout/login mantiene curva e rotazione
+
+### File Modificati
+- 🔄 **Modificato:** `src/ReplicatedStorage/Shared/Definitions.luau`
+- 🔄 **Modificato:** `src/ServerScriptService/ConveyorSystem.luau`
+- 🔄 **Modificato:** `src/ServerScriptService/InventoryManager.server.luau`
+- 🔄 **Modificato:** `src/StarterPlayer/StarterPlayerScripts/InventoryClient.client.luau`
+
+---
+
+## 📝 PROMPT 12 - Creare Preview Visiva del Flusso Conveyor
+
+### Contesto
+Il player può piazzare conveyor e macchine, ma non ha feedback chiaro sul percorso degli item finché la fabbrica non parte. Questo rende difficile capire errori di direzione, curve girate male o sell zone non collegate.
+
+### Obiettivo
+Creare una preview client-side che mostri il flusso previsto degli item sulla griglia quando il player sta piazzando o selezionando elementi di trasporto.
+
+### Dettagli Tecnici
+
+**File da modificare:**
+- `src/StarterPlayer/StarterPlayerScripts/InventoryClient.client.luau`
+
+**Eventuale file helper da creare:**
+- `src/StarterPlayer/StarterPlayerScripts/FlowPreview.client.luau` oppure modulo locale dentro `InventoryClient`
+
+### Funzionalità
+
+Quando il player è in placement mode con:
+- Conveyor
+- CurvedConveyor
+- Splitter
+- Merger
+
+mostrare piccole frecce sopra le celle interessate.
+
+Colori:
+- Verde: prossimo tile valido
+- Rosso: percorso finisce nel vuoto o in tile invalido
+- Giallo: prossimo tile è macchina o sell zone
+- Azzurro: split/merge valido
+
+### Implementazione
+
+1. **Calcolo preview locale:**
+   - Leggi gli item piazzati nel folder `PlayerItems_<UserId>`
+   - Simula massimo 20 tile di percorso
+   - Ferma la simulazione se incontra loop, sell zone o macchina
+
+2. **Rendering frecce:**
+   - Usa `Part` piccoli Neon ancorati sopra il plot
+   - Distruggi e ricrea la preview quando il mouse si muove o ruota il ghost item
+   - Non usare RemoteEvent per decidere il gameplay, è solo visuale
+
+3. **Pulizia:**
+   - Rimuovi preview quando esci da placement mode
+   - Rimuovi preview quando apri delete mode
+
+### Cosa Verificare
+- [ ] Mentre piazzi Conveyor, vedi la direzione del flusso
+- [ ] CurvedConveyor mostra output corretto dopo rotazione
+- [ ] Splitter mostra due possibili output
+- [ ] Percorso invalido diventa rosso
+- [ ] La preview non crea oggetti permanenti nel workspace
+- [ ] La preview non modifica il routing server
+
+### File Modificati
+- 🔄 **Modificato:** `src/StarterPlayer/StarterPlayerScripts/InventoryClient.client.luau`
+- ✅ **Opzionale Nuovo:** `src/StarterPlayer/StarterPlayerScripts/FlowPreview.client.luau`
+
+---
+
+## 📝 PROMPT 13 - Implementare il Power System Base
+
+### Contesto
+Le macchine in `Definitions` hanno già `powerRequired`, ma `MachineSystem` usa ancora `isPowered = true`. Il GDD dice che l'energia deve limitare l'espansione del player e il Town Prestige deve aumentare la capacità.
+
+### Obiettivo
+Creare un sistema server autoritativo per calcolare:
+- Power Capacity del player
+- Power Used dalle macchine piazzate
+- Generatori piazzati nel plot
+- Stato acceso/spento delle macchine
+
+### Dettagli Tecnici
+
+**File da creare:**
+- `src/ServerScriptService/PowerSystem.luau`
+
+**File da modificare:**
+- `src/ReplicatedStorage/Shared/Definitions.luau`
+- `src/ServerScriptService/InventoryManager.server.luau`
+- `src/ServerScriptService/MachineSystem.luau`
+- `src/ServerScriptService/PlayerProgress.luau`
+
+### Changes in Definitions
+
+Aggiungi nuovi item:
+
+```lua
+SmallGenerator = {
+  name = "SmallGenerator",
+  icon = "⚡",
+  category = "power",
+  cost = 250,
+  type = "generator",
+  powerProvided = 20,
+  isMachine = false,
+  isProduction = false
+}
+```
+
+Aggiungi default power negli stage:
+
+```lua
+TOWN_PRESTIGE_STAGES = {
+  {
+    stage = 1,
+    name = "Outpost",
+    requirements = { totalContribution = 0 },
+    rewards = { powerCapacity = 50, newShopItems = {} }
+  },
+  {
+    stage = 2,
+    name = "Village",
+    requirements = { totalContribution = 500, Mira = 50 },
+    rewards = { powerCapacity = 100, newShopItems = { "SmallGenerator" } }
+  }
+}
+```
+
+### PowerSystem API
+
+```lua
+PowerSystem.GetBaseCapacity(player) -> number
+PowerSystem.GetGeneratorCapacity(player) -> number
+PowerSystem.GetPowerUsed(player) -> number
+PowerSystem.GetPowerStatus(player) -> {
+  used = number,
+  capacity = number,
+  available = number
+}
+PowerSystem.CanPlaceMachine(player, itemName) -> boolean
+PowerSystem.RegisterPlacedItem(player, item)
+PowerSystem.UnregisterPlacedItem(player, item)
+```
+
+### Specifiche
+
+1. **Base Capacity:** Dipende dal Town Prestige attuale
+2. **Generatori:** Aumentano la capacity
+3. **Macchine:** Consumano power solo se hanno `powerRequired`
+4. **Conveyor:** Non consumano power
+5. **Splitter/Merger:** Non consumano power al lancio
+6. **Decorazioni:** Non consumano power
+
+### Cosa Verificare
+- [ ] Stage 1 ha power capacity base
+- [ ] Piazzare TreeFarm aumenta power used
+- [ ] Piazzare Sawmill aumenta power used
+- [ ] Piazzare SmallGenerator aumenta capacity
+- [ ] Rimuovere SmallGenerator diminuisce capacity
+- [ ] `GetPowerStatus` ritorna valori corretti
+
+### File Modificati
+- ✅ **Nuovo:** `src/ServerScriptService/PowerSystem.luau`
+- 🔄 **Modificato:** `src/ReplicatedStorage/Shared/Definitions.luau`
+- 🔄 **Modificato:** `src/ServerScriptService/InventoryManager.server.luau`
+- 🔄 **Modificato:** `src/ServerScriptService/MachineSystem.luau`
+- 🔄 **Modificato:** `src/ServerScriptService/PlayerProgress.luau`
+
+---
+
+## 📝 PROMPT 14 - Bloccare Piazzamento se Manca Energia + HUD Power
+
+### Contesto
+Hai PowerSystem, ma ora deve avere effetto reale sul gameplay. Il player non deve poter piazzare infinite macchine se supera la capacità energetica.
+
+### Obiettivo
+Integrare PowerSystem nel placement server e mostrare lo stato energia nella HUD.
+
+### Dettagli Tecnici
+
+**File da modificare:**
+- `src/ServerScriptService/InventoryManager.server.luau`
+- `src/ServerScriptService/MachineSystem.luau`
+- `src/StarterPlayer/StarterPlayerScripts/CurrencyUI.client.luau`
+
+### Server Changes
+
+1. **RemoteFunction `GetPowerStatus`:**
+
+```lua
+local getPowerStatusRemote = Instance.new("RemoteFunction")
+getPowerStatusRemote.Name = "GetPowerStatus"
+getPowerStatusRemote.Parent = ReplicatedStorage
+
+getPowerStatusRemote.OnServerInvoke = function(player)
+  return PowerSystem.GetPowerStatus(player)
+end
+```
+
+2. **Blocco Placement:**
+
+Nel `PlaceItem`:
+
+```lua
+if Definitions.GetMachine(itemName) then
+  local canPlace, message = PowerSystem.CanPlaceMachine(player, itemName)
+  if not canPlace then
+    return false, message
+  end
+end
+```
+
+3. **Machine Powered State:**
+
+Quando una macchina viene registrata:
+- Se c'è power, `isPowered = true`
+- Se manca power per qualche motivo, `isPowered = false`
+
+### Client Changes
+
+In `CurrencyUI.client.luau`, aggiungi:
+
+```text
+⚡ Power: 28 / 50
+```
+
+Colore:
+- Verde se available > 10
+- Giallo se available tra 1 e 10
+- Rosso se available <= 0
+
+### Cosa Verificare
+- [ ] Se superi la capacity, il server rifiuta il piazzamento
+- [ ] Il player riceve messaggio "Not enough Power"
+- [ ] Piazzare generatore permette nuove macchine
+- [ ] HUD mostra power usata/capacità
+- [ ] Delete di una macchina libera power
+- [ ] Delete di un generatore aggiorna capacity
+
+### File Modificati
+- 🔄 **Modificato:** `src/ServerScriptService/InventoryManager.server.luau`
+- 🔄 **Modificato:** `src/ServerScriptService/MachineSystem.luau`
+- 🔄 **Modificato:** `src/StarterPlayer/StarterPlayerScripts/CurrencyUI.client.luau`
+
+---
+
+## 📝 PROMPT 15 - Rendere Robusto Salvataggio e Caricamento Plot
+
+### Contesto
+Il progetto salva inventario e oggetti piazzati, ma il GDD richiede salvataggio affidabile per una release pubblicabile. Bisogna consolidare schema, migrazioni e retry, senza salvare production item o stati temporanei.
+
+### Obiettivo
+Migliorare il salvataggio plot per supportare in modo sicuro:
+- Inventory
+- Placed objects
+- Rotazioni
+- Generator state
+- Sell zones
+- Versioning schema
+- Retry/fallback
+
+### Dettagli Tecnici
+
+**File da modificare:**
+- `src/ServerScriptService/InventoryManager.server.luau`
+- `src/ServerScriptService/PlayerProgress.luau`
+
+### Schema Save Plot
+
+Aggiorna il save data:
+
+```lua
+{
+  version = 2,
+  plotId = 1,
+  inventory = {
+    { itemName = "TreeFarm", count = 1 }
+  },
+  placedItems = {
+    {
+      itemName = "Conveyor",
+      cellX = 4,
+      cellZ = 2,
+      rotation = 1,
+      scaleFactor = 1,
+      cellsX = 1,
+      cellsZ = 1,
+      npcName = nil
+    }
+  },
+  lastSaved = tick()
+}
+```
+
+### Specifiche
+
+1. **Versioning:** Aggiungi `version` al salvataggio plot
+2. **Migrazione:** Se mancano `cellX/cellZ`, ricostruiscili da `position`
+3. **Retry:** Salva con massimo 3 tentativi
+4. **Fallback:** Se DataStore fallisce, usa cache in memoria
+5. **Non Salvare:**
+   - Production item attivi
+   - Input interni delle macchine
+   - Craft progress
+   - Stuck state conveyor
+
+### Cosa Verificare
+- [ ] Logout/login mantiene tutti gli item piazzati
+- [ ] Rotazioni restano corrette
+- [ ] Sell zone tornano registrate
+- [ ] Generator torna registrato nel PowerSystem
+- [ ] Macchine tornano registrate nel MachineSystem
+- [ ] Conveyor sono vuoti al rientro
+- [ ] Se un save vecchio non ha `version`, viene migrato
+
+### File Modificati
+- 🔄 **Modificato:** `src/ServerScriptService/InventoryManager.server.luau`
+- 🔄 **Modificato:** `src/ServerScriptService/PlayerProgress.luau`
+
+---
+
+## 📝 PROMPT 16 - Creare UI Statistiche Vendite e Menu NPC Base
+
+### Contesto
+Le vendite aggiornano Money, Reputation e statistiche, ma il player non vede chiaramente:
+- Cosa compra ogni NPC
+- Quanti item ha venduto
+- Quanta reputazione ha
+- Quanto manca al prossimo Town Prestige
+
+### Obiettivo
+Creare una UI base per NPC e Sindaco con statistiche leggibili.
+
+### Dettagli Tecnici
+
+**File da creare:**
+- `src/StarterPlayer/StarterPlayerScripts/NPCProgressUI.client.luau`
+
+**File da modificare:**
+- `src/ServerScriptService/InventoryManager.server.luau`
+- `src/ServerScriptService/PlayerProgress.luau`
+
+### Server Changes
+
+Aggiungi RemoteFunction:
+
+```lua
+GetSalesStats -> {
+  lifetimeSold = {},
+  npcSold = {},
+  mayorContribution = {},
+  npcReputation = {},
+  townPrestige = {}
+}
+```
+
+Aggiungi helper in PlayerProgress:
+
+```lua
+PlayerProgress.GetPublicProgressSnapshot(player)
+```
+
+Deve ritornare solo dati sicuri per il client.
+
+### Client UI
+
+Creare pulsanti top-left:
+- Mira
+- Bront
+- Elrik
+- Sindaco
+
+Ogni menu NPC mostra:
+- Nome NPC + titolo
+- Reputation attuale
+- Item accettati
+- Prezzo base per item
+- Quantità venduta per item
+
+Menu Sindaco mostra:
+- Stage attuale
+- Contributi totali
+- Requisiti prossimo stage
+- Ricompense prossimo stage
+
+### Cosa Verificare
+- [ ] Click su Mira apre menu Mira
+- [ ] Mira mostra Plank/Beam/Crate come item accettati
+- [ ] Dopo vendita Plank, le statistiche aumentano
+- [ ] Sindaco mostra contributi aggiornati
+- [ ] UI non decide soldi/reputazione, legge solo snapshot server
+
+### File Modificati
+- ✅ **Nuovo:** `src/StarterPlayer/StarterPlayerScripts/NPCProgressUI.client.luau`
+- 🔄 **Modificato:** `src/ServerScriptService/InventoryManager.server.luau`
+- 🔄 **Modificato:** `src/ServerScriptService/PlayerProgress.luau`
+
+---
+
+## 📝 PROMPT 17 - Aggiungere Macchine Specializzate MVP per Legno, Pietra e Ferro
+
+### Contesto
+Il gioco ha già TreeFarm, MineEntrance e Sawmill, ma il GDD prevede tre linee produttive iniziali: Legno, Pietra e Ferro. Serve almeno una macchina specializzata per ogni NPC per rendere il loop più profondo.
+
+### Obiettivo
+Aggiungere macchine e recipe MVP per vendere item significativi a Mira, Bront ed Elrik.
+
+### Dettagli Tecnici
+
+**File da modificare:**
+- `src/ReplicatedStorage/Shared/Definitions.luau`
+- `src/ServerScriptService/InventoryManager.server.luau`
+- `src/ServerScriptService/MachineSystem.luau`
+- `src/StarterPlayer/StarterPlayerScripts/ProductionItems.lua`
+
+### Nuovi Production Items
+
+```lua
+Beam = { name = "Beam", category = "wood", value = 25, isProduction = true }
+StoneBlock = { name = "StoneBlock", category = "stone", value = 18, isProduction = true }
+IronIngot = { name = "IronIngot", category = "iron", value = 30, isProduction = true }
+```
+
+### Nuove Macchine
+
+```lua
+BeamCutter = {
+  type = "processor",
+  inputItem = "Plank",
+  outputItem = "Beam",
+  processingTime = 4,
+  inputQueueSize = 2,
+  powerRequired = 12
+}
+
+StoneCutter = {
+  type = "processor",
+  inputItem = "Stone",
+  outputItem = "StoneBlock",
+  processingTime = 3,
+  inputQueueSize = 2,
+  powerRequired = 10
+}
+
+Furnace = {
+  type = "processor",
+  inputItem = "IronOre",
+  outputItem = "IronIngot",
+  processingTime = 5,
+  inputQueueSize = 2,
+  powerRequired = 15
+}
+```
+
+### Note Importanti
+
+- Se manca un modello `.rbxm`, crea template fallback semplice in `InventoryManager`
+- Non aggiungere ancora recipe multiple
+- Non aggiungere input multipli in questa fase
+- Ogni macchina deve usare il sistema processor già esistente
+
+### Cosa Verificare
+- [ ] BeamCutter trasforma Plank in Beam
+- [ ] StoneCutter trasforma Stone in StoneBlock
+- [ ] Furnace trasforma IronOre in IronIngot
+- [ ] Mira compra Beam
+- [ ] Bront compra StoneBlock
+- [ ] Elrik compra IronIngot
+- [ ] Nessuna macchina duplica output
+
+### File Modificati
+- 🔄 **Modificato:** `src/ReplicatedStorage/Shared/Definitions.luau`
+- 🔄 **Modificato:** `src/ServerScriptService/InventoryManager.server.luau`
+- 🔄 **Modificato:** `src/ServerScriptService/MachineSystem.luau`
+- 🔄 **Modificato:** `src/StarterPlayer/StarterPlayerScripts/ProductionItems.lua`
+
+---
+
+## 📝 PROMPT 18 - Decorazioni Base e Pulizia dello Shop
+
+### Contesto
+Lo shop vende item funzionali, ma la UI diventerà confusa man mano che si aggiungono macchine, generatori e decorazioni. Inoltre il GDD prevede decorazioni come contenuto secondario, non bloccante.
+
+### Obiettivo
+Aggiungere decorazioni base e migliorare la navigazione dello shop con filtri per categoria.
+
+### Dettagli Tecnici
+
+**File da modificare:**
+- `src/ReplicatedStorage/Shared/Definitions.luau`
+- `src/StarterGui/ShopUI.lua`
+- `src/StarterPlayer/StarterPlayerScripts/ShopClient.client.luau`
+- `src/ServerScriptService/InventoryManager.server.luau`
+
+### Nuove Decorazioni
+
+Aggiungi item:
+
+```lua
+DecorTree = {
+  name = "DecorTree",
+  icon = "🌳",
+  category = "decoration",
+  cost = 20,
+  type = "decoration",
+  isMachine = false,
+  isProduction = false
+}
+
+FactorySign = {
+  name = "FactorySign",
+  icon = "🪧",
+  category = "decoration",
+  cost = 35,
+  type = "decoration",
+  isMachine = false,
+  isProduction = false
+}
+
+StreetLamp = {
+  name = "StreetLamp",
+  icon = "💡",
+  category = "decoration",
+  cost = 50,
+  type = "decoration",
+  isMachine = false,
+  isProduction = false
+}
+```
+
+### Shop UI
+
+Aggiungi filtri:
+- All
+- Machines
+- Transport
+- Power
+- Decorations
+
+Regole:
+- Sell Zone non deve apparire nello shop
+- Production item non devono apparire nello shop
+- Gli item vanno ordinati per categoria e costo
+
+### Specifiche
+
+1. **Template fallback:** Se non esiste modello, crea modelli semplici via script
+2. **Power:** Le decorazioni non consumano energia
+3. **Placement:** Le decorazioni si piazzano, ruotano, cancellano e salvano come gli altri item
+4. **UI:** Il filtro selezionato deve restare evidenziato
+
+### Cosa Verificare
+- [ ] DecorTree si compra e piazza
+- [ ] FactorySign si compra e piazza
+- [ ] StreetLamp si compra e piazza
+- [ ] Filtri shop funzionano
+- [ ] Sell zone non appaiono nello shop
+- [ ] Decorazioni non consumano power
+- [ ] Decorazioni restano dopo rejoin
+
+### File Modificati
+- 🔄 **Modificato:** `src/ReplicatedStorage/Shared/Definitions.luau`
+- 🔄 **Modificato:** `src/StarterGui/ShopUI.lua`
+- 🔄 **Modificato:** `src/StarterPlayer/StarterPlayerScripts/ShopClient.client.luau`
+- 🔄 **Modificato:** `src/ServerScriptService/InventoryManager.server.luau`
+
+---
+
+## 📝 PROMPT 19 - Hardening Multiplayer, Ownership e Cleanup
+
+### Contesto
+Il gioco deve supportare 6 player con plot separati. Il server deve impedire exploit o interferenze tra player:
+- Piazzare su plot altrui
+- Cancellare item altrui
+- Vendere item altrui
+- Lasciare production item attivi dopo logout
+
+### Obiettivo
+Rendere robusta la separazione tra player, plot e item prodotti.
+
+### Dettagli Tecnici
+
+**File da modificare:**
+- `src/ServerScriptService/InventoryManager.server.luau`
+- `src/ServerScriptService/ConveyorSystem.luau`
+- `src/ServerScriptService/MachineSystem.luau`
+- `src/ServerScriptService/SellSystem.luau`
+
+### Requisiti Server
+
+Ogni placed item deve avere:
+
+```lua
+Owner = player.UserId
+PlotId = plotId
+ItemName = itemName
+CellX = cellX
+CellZ = cellZ
+```
+
+Ogni production item deve avere:
+
+```lua
+Owner = player.UserId
+PlotId = plotId
+ItemName = itemName
+ItemId = uniqueId
+SpawnedAt = tick()
+```
+
+### Regole
+
+1. **Placement:** Il server rifiuta se la cella non appartiene al plot del player
+2. **Delete:** Il server rifiuta se `Owner ~= player.UserId`
+3. **Rotate:** Il server rifiuta se `Owner ~= player.UserId`
+4. **Sell:** SellSystem vende solo item con owner e plot corretti
+5. **Logout:** Rimuovi tutti i production item del player
+6. **Limiti:** Max 100 active production item per plot
+7. **Debounce vendita:** Max 20 sell events/sec per player
+
+### Cosa Verificare
+- [ ] Player A non può cancellare item di Player B
+- [ ] Player A non può piazzare sul plot di Player B
+- [ ] Item prodotti da Player A non vengono venduti da Player B
+- [ ] Quando un player lascia, spariscono i suoi production item
+- [ ] 6 player possono giocare senza errori di owner
+- [ ] Il limite active item evita accumuli infiniti
+
+### File Modificati
+- 🔄 **Modificato:** `src/ServerScriptService/InventoryManager.server.luau`
+- 🔄 **Modificato:** `src/ServerScriptService/ConveyorSystem.luau`
+- 🔄 **Modificato:** `src/ServerScriptService/MachineSystem.luau`
+- 🔄 **Modificato:** `src/ServerScriptService/SellSystem.luau`
+
+---
+
+## 📝 PROMPT 20 - Tutorial Onboarding e Bilanciamento Primo Loop
+
+### Contesto
+Il core loop è giocabile, ma un nuovo player deve capire cosa fare senza leggere documentazione esterna. Il GDD dice che il tutorial deve introdurre un sistema alla volta e portare il player verso i 3 NPC entro circa 20 minuti.
+
+Per ora implementiamo solo il primo tratto: dalla prima macchina alla prima vendita a Mira.
+
+### Obiettivo
+Creare un tutorial salvabile che guida il player nel primo loop:
+TreeFarm -> Conveyor -> Sawmill -> Mira Sell Zone -> prima vendita Plank.
+
+### Dettagli Tecnici
+
+**File da creare:**
+- `src/ServerScriptService/TutorialSystem.luau`
+- `src/StarterPlayer/StarterPlayerScripts/TutorialClient.client.luau`
+
+**File da modificare:**
+- `src/ServerScriptService/PlayerProgress.luau`
+- `src/ServerScriptService/InventoryManager.server.luau`
+- `src/ServerScriptService/SellSystem.luau`
+
+### Tutorial State
+
+Aggiungi in PlayerProgress:
+
+```lua
+tutorial = {
+  currentStep = 1,
+  completed = false,
+  completedSteps = {}
+}
+```
+
+### Step Tutorial
+
+1. **Compra TreeFarm**
+   - Obiettivo: "Buy a TreeFarm from the Shop"
+   - Completa quando inventory contiene TreeFarm
+
+2. **Piazza TreeFarm**
+   - Completa quando TreeFarm è piazzata nel plot
+
+3. **Compra e piazza Conveyor**
+   - Completa quando almeno un Conveyor è piazzato
+
+4. **Compra e piazza Sawmill**
+   - Completa quando Sawmill è piazzata
+
+5. **Piazza MiraSellZone**
+   - Completa quando MiraSellZone è piazzata
+
+6. **Vendi un Plank a Mira**
+   - Completa quando `npcSold.Mira.Plank >= 1`
+
+### Client UI
+
+Creare un piccolo Objective Tracker:
+
+```text
+Objective
+Buy a TreeFarm from the Shop
+```
+
+Regole:
+- Non blocca input del player
+- Si aggiorna quando il server conferma avanzamento
+- Scompare quando il tutorial è completato
+
+### Bilanciamento Iniziale
+
+Controllare:
+- Money iniziale sufficiente per completare il tutorial
+- Costi TreeFarm/Conveyor/Sawmill non creano grind
+- Primo loop completabile in pochi minuti
+
+### Cosa Verificare
+- [ ] Nuovo player vede il primo obiettivo
+- [ ] Comprare TreeFarm avanza step
+- [ ] Piazzare TreeFarm avanza step
+- [ ] Vendere Plank a Mira completa tutorial
+- [ ] Tutorial state viene salvato
+- [ ] Dopo rejoin, il tutorial riparte dallo step corretto
+- [ ] Player non può completare step tramite client spoofing
+
+### File Modificati
+- ✅ **Nuovo:** `src/ServerScriptService/TutorialSystem.luau`
+- ✅ **Nuovo:** `src/StarterPlayer/StarterPlayerScripts/TutorialClient.client.luau`
+- 🔄 **Modificato:** `src/ServerScriptService/PlayerProgress.luau`
+- 🔄 **Modificato:** `src/ServerScriptService/InventoryManager.server.luau`
+- 🔄 **Modificato:** `src/ServerScriptService/SellSystem.luau`
+
+---
+
+# ✅ Prompt 11-20 Completati!
+
+A questo punto hai:
+- ✅ Conveyor dritti, curvi, splitter e merger
+- ✅ Preview visuale del flusso conveyor
+- ✅ Power system con generatori
+- ✅ HUD power e blocco placement se manca energia
+- ✅ Salvataggio plot più robusto
+- ✅ UI statistiche NPC e Sindaco
+- ✅ Prime macchine specializzate per legno, pietra e ferro
+- ✅ Decorazioni base e shop più ordinato
+- ✅ Multiplayer più sicuro tra 6 plot
+- ✅ Tutorial iniziale fino alla prima vendita a Mira
+
+**Il gioco ora entra nella fase MVP vera.** Player può:
+1. Comprare e piazzare macchine
+2. Collegarle con conveyor dritti/curvi/splitter/merger
+3. Gestire energia con generatori
+4. Vedere statistiche NPC e progressi Sindaco
+5. Seguire un tutorial iniziale
+6. Salvare e ricaricare una fabbrica più completa
+
+---
+
 # 🟠 Continua con...
 
-Prossimi 10 prompt (11-20) dovranno coprire:
-- Conveyor curve e diagonali
-- Sistema di energia (Generatori, power capacity)
-- UI di anteprima flusso item
-- Statistiche vendite visible
-- Salvare e caricare plot completi
-- Macchine specializzate (Beam Cutter, Stone Cutter, ecc)
-- Decorazioni e pulizia UI
-- Multiplayer su stessi plot
-- Tutorial onboarding
-- Balancing e tweaking iniziale
+Prossimi 10 prompt (21-30) dovranno coprire:
+- Linea Legno completa con Crate Assembler
+- Linea Pietra completa con Brick Kiln
+- Linea Ferro completa con Plate Press e Gear Maker
+- Unlock progressivi via reputazione NPC
+- Town Prestige stage 2 e ricompense reali
+- Mayor UI più completa
+- Machine UI interattiva
+- Almanacco base
+- Test performance item attivi
+- Polish mobile e input gamepad

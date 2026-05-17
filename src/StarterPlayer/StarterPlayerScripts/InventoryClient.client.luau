@@ -143,10 +143,6 @@ local function getItemBaseFootprint(itemName)
                itemDef.cells.z or itemDef.cells.Z or itemDef.cells[2] or 1
     end
 
-    if itemName and (itemName:find("CurvedConveyor") or itemName:find("ConveyorCurve") or itemName:find("ConveyorCorner")) then
-        return 2, 1
-    end
-
     return 1, 1
 end
 
@@ -178,11 +174,136 @@ local ITEM_VISUAL_ADJUSTMENTS = {
         footprintPadding = 0.98,
         maxHeight = 1.2,
     },
+    CurvedConveyor = {
+        footprintPadding = 0.82,
+        maxHeight = 1.2,
+        maxScale = 3,
+    },
 }
 
 local function getItemFootprintPadding(itemName)
     local adjustment = ITEM_VISUAL_ADJUSTMENTS[itemName]
     return (adjustment and adjustment.footprintPadding) or 1
+end
+
+local function getCurvedConveyorVisualPart(conveyor)
+    local fallbackPart = nil
+    local fallbackArea = 0
+
+    for _, descendant in ipairs(conveyor:GetDescendants()) do
+        if descendant:IsA("BasePart") then
+            local lowerName = string.lower(descendant.Name)
+            if lowerName == "curvedconveyorpivot" then
+                continue
+            end
+
+            if lowerName == "curved conveyor" or lowerName == "curvedconveyor" or lowerName == "curvebelt" then
+                return descendant
+            end
+
+            local area = descendant.Size.X * descendant.Size.Z
+            if descendant.Transparency < 1 and area > fallbackArea then
+                fallbackPart = descendant
+                fallbackArea = area
+            end
+        end
+    end
+
+    return fallbackPart
+end
+
+local function ensureCurvedConveyorPivot(conveyor)
+    local pivotPart = conveyor:FindFirstChild("CurvedConveyorPivot")
+    if pivotPart and pivotPart:IsA("BasePart") then
+        conveyor.PrimaryPart = pivotPart
+        return pivotPart
+    end
+
+    pivotPart = Instance.new("Part")
+    pivotPart.Name = "CurvedConveyorPivot"
+    pivotPart.Size = Vector3.new(0.2, 0.2, 0.2)
+    pivotPart.Transparency = 1
+    pivotPart.Anchored = true
+    pivotPart.CanCollide = false
+    pivotPart.CanQuery = false
+    pivotPart.CanTouch = false
+    pivotPart.CFrame = conveyor:GetPivot()
+    pivotPart.Parent = conveyor
+    conveyor.PrimaryPart = pivotPart
+
+    return pivotPart
+end
+
+local function getVisibleBounds(instance)
+    local minX, minY, minZ = math.huge, math.huge, math.huge
+    local maxX, maxY, maxZ = -math.huge, -math.huge, -math.huge
+    local hasVisiblePart = false
+
+    for _, descendant in ipairs(instance:GetDescendants()) do
+        if descendant:IsA("BasePart") and descendant.Transparency < 1 then
+            hasVisiblePart = true
+            local halfSize = descendant.Size / 2
+            for _, x in ipairs({ -halfSize.X, halfSize.X }) do
+                for _, y in ipairs({ -halfSize.Y, halfSize.Y }) do
+                    for _, z in ipairs({ -halfSize.Z, halfSize.Z }) do
+                        local corner = (descendant.CFrame * CFrame.new(x, y, z)).Position
+                        minX = math.min(minX, corner.X)
+                        minY = math.min(minY, corner.Y)
+                        minZ = math.min(minZ, corner.Z)
+                        maxX = math.max(maxX, corner.X)
+                        maxY = math.max(maxY, corner.Y)
+                        maxZ = math.max(maxZ, corner.Z)
+                    end
+                end
+            end
+        end
+    end
+
+    if not hasVisiblePart then
+        return nil, nil
+    end
+
+    local minPoint = Vector3.new(minX, minY, minZ)
+    local maxPoint = Vector3.new(maxX, maxY, maxZ)
+    return (minPoint + maxPoint) / 2, maxPoint - minPoint
+end
+
+local function normalizeCurvedConveyorGeometry(conveyor)
+    local visualPart = getCurvedConveyorVisualPart(conveyor)
+    if not visualPart then
+        return nil
+    end
+
+    local pivotPart = ensureCurvedConveyorPivot(conveyor)
+
+    for _, descendant in ipairs(conveyor:GetDescendants()) do
+        if descendant:IsA("BasePart") and descendant ~= visualPart and string.lower(descendant.Name) == "cube" then
+            descendant.Transparency = 1
+            descendant.CanCollide = false
+            descendant.CanQuery = false
+            descendant.CanTouch = false
+        end
+    end
+
+    if not conveyor:GetAttribute("CurvedGeometryNormalized") then
+        local visibleCenter, visibleSize = getVisibleBounds(conveyor)
+        if visibleCenter and visibleSize then
+            local pivot = pivotPart.CFrame
+            local currentLocalCenter = pivot:PointToObjectSpace(visibleCenter)
+            local targetLocalCenter = Vector3.new(0, visibleSize.Y / 2, 0)
+            local worldDelta = pivot:VectorToWorldSpace(targetLocalCenter - currentLocalCenter)
+
+            for _, descendant in ipairs(conveyor:GetDescendants()) do
+                if descendant:IsA("BasePart") and descendant.Transparency < 1 then
+                    descendant.CFrame = descendant.CFrame + worldDelta
+                end
+            end
+        end
+
+        conveyor:SetAttribute("CurvedGeometryNormalized", true)
+    end
+
+    return pivotPart
 end
 
 local function applyItemVisualAdjustments(item, itemName)
@@ -206,6 +327,49 @@ local function applyItemVisualAdjustments(item, itemName)
             )
         end
     end
+end
+
+local function styleCurvedConveyorBase(conveyor)
+    local pivotPart = normalizeCurvedConveyorGeometry(conveyor)
+    local basePart = getCurvedConveyorVisualPart(conveyor) or conveyor.PrimaryPart
+
+    if pivotPart then
+        conveyor.PrimaryPart = pivotPart
+    end
+
+    local shouldStyleAsBase = false
+    if basePart then
+        local color = basePart.Color
+        local looksDefaultWhite = color.R > 0.8 and color.G > 0.8 and color.B > 0.8
+        shouldStyleAsBase = basePart.Name == "Cube" or looksDefaultWhite
+    end
+
+    if basePart and shouldStyleAsBase then
+        basePart.Name = "CurveBelt"
+        basePart.Material = Enum.Material.Metal
+        basePart.Color = Color3.fromRGB(54, 62, 66)
+    end
+
+    return basePart
+end
+
+local function prepareCurvedConveyorVisuals(item)
+    styleCurvedConveyorBase(item)
+end
+
+local function pivotModelToFootprint(model, centerPosition, groundY, rotation)
+    model:PivotTo(CFrame.new(centerPosition.X, groundY, centerPosition.Z) * getRotationCFrame(rotation))
+
+    local visibleCenter, visibleSize = getVisibleBounds(model)
+    if visibleCenter and visibleSize then
+        local targetCenter = Vector3.new(centerPosition.X, groundY + visibleSize.Y / 2, centerPosition.Z)
+        model:PivotTo(model:GetPivot() + (targetCenter - visibleCenter))
+        return
+    end
+
+    local boundingCFrame, size = model:GetBoundingBox()
+    local targetCenter = Vector3.new(centerPosition.X, groundY + size.Y / 2, centerPosition.Z)
+    model:PivotTo(model:GetPivot() + (targetCenter - boundingCFrame.Position))
 end
 
 -- Function to check if cells are within plot bounds
@@ -897,16 +1061,33 @@ indicatorText.Parent = placementIndicator
 
 -- Function to calculate scale to fit the item's base footprint
 local function calculateItemScaleForFootprint(item, itemName, gridUnit, cellsX, cellsZ)
-    local _, itemSize = item:GetBoundingBox()
+    local itemSize = nil
+    if itemName == "CurvedConveyor" then
+        local _, visibleSize = getVisibleBounds(item)
+        if visibleSize then
+            itemSize = visibleSize
+        end
+    end
+
+    if not itemSize then
+        local _, boundingSize = item:GetBoundingBox()
+        itemSize = boundingSize
+    end
+
     if itemSize.X <= 0 or itemSize.Z <= 0 then
         return 1
     end
 
     local footprintPadding = getItemFootprintPadding(itemName)
+    local adjustment = ITEM_VISUAL_ADJUSTMENTS[itemName]
     
     local scaleX = (gridUnit * cellsX * footprintPadding) / itemSize.X
     local scaleZ = (gridUnit * cellsZ * footprintPadding) / itemSize.Z
     local scaleFactor = math.min(scaleX, scaleZ)
+
+    if adjustment and adjustment.maxScale then
+        scaleFactor = math.min(scaleFactor, adjustment.maxScale)
+    end
     
     return scaleFactor
 end
@@ -924,6 +1105,9 @@ local function createGhostItem(itemName)
     local newGhost = itemTemplate:Clone()
 
     newGhost.Name = "GhostItem"
+    if itemName == "CurvedConveyor" then
+        prepareCurvedConveyorVisuals(newGhost)
+    end
     
     -- Calculate and apply scaling to fit the item's base grid footprint.
     local gridUnit = getGridUnitSize()
@@ -1228,15 +1412,20 @@ local function updateGhostPosition()
             updateHighlightBox(cellX, cellZ, cellsX, cellsZ, true)
             
             local worldPos = getFootprintCenter(cellX, cellZ, cellsX, cellsZ, plotInfo, gridUnit)
-            local itemHeight = getItemHeight(ghostItem)
-            local finalY = worldPos.Y + itemHeight / 2
             
             canPlace = true
-            ghostItem:PivotTo(CFrame.new(
-                worldPos.X,
-                finalY,
-                worldPos.Z
-            ) * getRotationCFrame(placementRotation))
+            if selectedItem == "CurvedConveyor" then
+                pivotModelToFootprint(ghostItem, worldPos, worldPos.Y, placementRotation)
+            else
+                local itemHeight = getItemHeight(ghostItem)
+                local finalY = worldPos.Y + itemHeight / 2
+
+                ghostItem:PivotTo(CFrame.new(
+                    worldPos.X,
+                    finalY,
+                    worldPos.Z
+                ) * getRotationCFrame(placementRotation))
+            end
         end
     end
 end
@@ -1371,14 +1560,7 @@ local function onInputBegan(input, gameProcessed)
                 local cellX, cellZ = worldToGrid(result.Position, plotInfo, gridUnit)
                 local cellsX, cellsZ = getRotatedFootprint(selectedItem, placementRotation)
                 local worldPos = getFootprintCenter(cellX, cellZ, cellsX, cellsZ, plotInfo, gridUnit)
-                local itemHeight = getItemHeight(ghostItem)
-                local finalY = worldPos.Y + itemHeight / 2
-                
-                local position = Vector3.new(
-                    worldPos.X,
-                    finalY,
-                    worldPos.Z
-                )
+                local position = Vector3.new(worldPos.X, worldPos.Y, worldPos.Z)
                 
                 placeItemRemote:FireServer(selectedItem, position, currentScaleFactor, gridUnit, cellsX, cellsZ, placementRotation, cellX, cellZ)
                 

@@ -87,6 +87,15 @@ local ITEMS = {
 		isMachine = false,
 		isProduction = false,
 	},
+	CurvedConveyor = {
+		name = "CurvedConveyor",
+		icon = "↪",
+		category = "transportation",
+		cost = 35,
+		type = "curved_conveyor",
+		isMachine = false,
+		isProduction = false,
+	},
 	Splitter = {
 		name = "Splitter",
 		icon = "Y",

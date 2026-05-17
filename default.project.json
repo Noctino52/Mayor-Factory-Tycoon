@@ -32,7 +32,8 @@
           "RubiksCube": {"$path": "src/ReplicatedStorage/Shared/ItemTemplates/RubiksCube.rbxm"},
           "TreeFarm": {"$path": "src/ReplicatedStorage/Shared/ItemTemplates/TreeFarm.rbxm"},
           "MineEntrance": {"$path": "src/ReplicatedStorage/Shared/ItemTemplates/MineEntrace.rbxm"},
-          "Conveyor": {"$path": "src/Workspace/Models/Conveyor Belt.rbxm"}
+          "Conveyor": {"$path": "src/Workspace/Models/Conveyor Belt.rbxm"},
+          "CurvedConveyor": {"$path": "src/Workspace/Models/Curved Conveyor.rbxm"}
         },
         "ProductionItemTemplates": {
           "$className": "Folder",

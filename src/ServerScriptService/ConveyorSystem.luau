@@ -127,7 +127,7 @@ local function isTransportItem(itemName)
         return isConveyorItem(itemName)
     end
 
-    return itemDef.type == "conveyor" or itemDef.type == "splitter" or itemDef.type == "merger"
+    return itemDef.type == "conveyor" or itemDef.type == "curved_conveyor" or itemDef.type == "splitter" or itemDef.type == "merger"
 end
 
 local function rotateDirection(dx, dz, rotationSteps)
@@ -150,6 +150,140 @@ local function getRoutingDirection(cellInfo, activeItem)
     end
 
     return cellInfo.directionX or 1, cellInfo.directionZ or 0
+end
+
+local CURVED_CONVEYOR_ROUTES = {
+    -- Rotation 0: input from left -> output bottom.
+    { inputX = -1, inputZ = 0, outputX = 0, outputZ = 1 },
+    -- Rotation 1: input from bottom -> output right.
+    { inputX = 0, inputZ = 1, outputX = 1, outputZ = 0 },
+    -- Rotation 2: input from top -> output right.
+    { inputX = 0, inputZ = -1, outputX = 1, outputZ = 0 },
+    -- Rotation 3: input from left -> output top.
+    { inputX = -1, inputZ = 0, outputX = 0, outputZ = -1 },
+}
+
+local CURVED_CONVEYOR_ROUTE_ROTATION_OFFSET = 0
+
+local function formatCellForLog(cellX, cellZ)
+    if cellX == nil or cellZ == nil then
+        return "(nil,nil)"
+    end
+
+    return "(" .. tostring(cellX) .. "," .. tostring(cellZ) .. ")"
+end
+
+local function formatVectorForLog(position)
+    if not position then
+        return "(nil,nil,nil)"
+    end
+
+    return string.format("(%.3f, %.3f, %.3f)", position.X, position.Y, position.Z)
+end
+
+local function getRouteSideLabel(dx, dz)
+    if dx == -1 and dz == 0 then
+        return "sinistra(-X)"
+    elseif dx == 1 and dz == 0 then
+        return "destra(+X)"
+    elseif dx == 0 and dz == -1 then
+        return "alto(-Z)"
+    elseif dx == 0 and dz == 1 then
+        return "basso(+Z)"
+    end
+
+    return tostring(dx) .. "," .. tostring(dz)
+end
+
+local function logCurvedConveyorRoute(cellInfo, previousCellX, previousCellZ, nextCellX, nextCellZ, activeItem, route, rotation, visualRotation)
+    local curvedConveyor = cellInfo and cellInfo.instance
+    local player = activeItem and activeItem.player
+    local itemName = activeItem and activeItem.itemName or "unknown"
+    local cellX = curvedConveyor and curvedConveyor:GetAttribute("CellX") or nil
+    local cellZ = curvedConveyor and curvedConveyor:GetAttribute("CellZ") or nil
+    local pivot = curvedConveyor and curvedConveyor:GetPivot() or nil
+    local yawDegrees = 0
+
+    if pivot then
+        local _, yaw = pivot:ToOrientation()
+        yawDegrees = math.deg(yaw)
+    end
+
+    local expectedInputCell = route and formatCellForLog(cellX + route.inputX, cellZ + route.inputZ) or "(nil,nil)"
+    local expectedOutputCell = route and formatCellForLog(cellX + route.outputX, cellZ + route.outputZ) or "(nil,nil)"
+    local inputSide = route and getRouteSideLabel(route.inputX, route.inputZ) or "nil"
+    local outputSide = route and getRouteSideLabel(route.outputX, route.outputZ) or "nil"
+    local result = (nextCellX ~= nil and nextCellZ ~= nil) and "ACCEPTED" or "REJECTED"
+
+    print(string.format(
+        "[CurvedConveyorRoute] result=%s player=%s item=%s curved=%s cell=%s world=%s logicalRotation=%s visualRouteRotation=%s routeOffset=%s modelYaw=%.1f prevCell=%s expectedInput=%s inputSide=%s outputCell=%s outputSide=%s nextCell=%s",
+        result,
+        player and player.Name or "nil",
+        tostring(itemName),
+        curvedConveyor and curvedConveyor:GetFullName() or "nil",
+        formatCellForLog(cellX, cellZ),
+        formatVectorForLog(pivot and pivot.Position or nil),
+        tostring(rotation),
+        tostring(visualRotation),
+        tostring(CURVED_CONVEYOR_ROUTE_ROTATION_OFFSET),
+        yawDegrees,
+        formatCellForLog(previousCellX, previousCellZ),
+        expectedInputCell,
+        inputSide,
+        expectedOutputCell,
+        outputSide,
+        formatCellForLog(nextCellX, nextCellZ)
+    ))
+end
+
+local function RouteCurvedConveyor(cellInfo, previousCellX, previousCellZ, activeItem, shouldLog)
+    local curvedConveyor = cellInfo and cellInfo.instance
+    if not curvedConveyor or not curvedConveyor.Parent or previousCellX == nil or previousCellZ == nil then
+        if shouldLog then
+            logCurvedConveyorRoute(cellInfo, previousCellX, previousCellZ, nil, nil, activeItem, nil, nil, nil)
+        end
+        return nil, nil
+    end
+
+    local cellX = curvedConveyor:GetAttribute("CellX")
+    local cellZ = curvedConveyor:GetAttribute("CellZ")
+    if cellX == nil or cellZ == nil then
+        if shouldLog then
+            logCurvedConveyorRoute(cellInfo, previousCellX, previousCellZ, nil, nil, activeItem, nil, nil, nil)
+        end
+        return nil, nil
+    end
+
+    local rotation = math.floor(tonumber(curvedConveyor:GetAttribute("Rotation")) or 0) % 4
+
+    local visualRotation = (rotation + CURVED_CONVEYOR_ROUTE_ROTATION_OFFSET) % 4
+    local route = CURVED_CONVEYOR_ROUTES[visualRotation + 1]
+    local nextCellX = nil
+    local nextCellZ = nil
+
+    if route then
+        curvedConveyor:SetAttribute("DebugLogicalRotation", rotation)
+        curvedConveyor:SetAttribute("DebugVisualRouteRotation", visualRotation)
+        curvedConveyor:SetAttribute("DebugInputCellX", cellX + route.inputX)
+        curvedConveyor:SetAttribute("DebugInputCellZ", cellZ + route.inputZ)
+        curvedConveyor:SetAttribute("DebugOutputCellX", cellX + route.outputX)
+        curvedConveyor:SetAttribute("DebugOutputCellZ", cellZ + route.outputZ)
+    end
+
+    if route and previousCellX == cellX + route.inputX and previousCellZ == cellZ + route.inputZ then
+        nextCellX = cellX + route.outputX
+        nextCellZ = cellZ + route.outputZ
+    end
+
+    if curvedConveyor then
+        curvedConveyor:SetAttribute("DebugRouteAccepted", nextCellX ~= nil and nextCellZ ~= nil)
+    end
+
+    if shouldLog then
+        logCurvedConveyorRoute(cellInfo, previousCellX, previousCellZ, nextCellX, nextCellZ, activeItem, route, rotation, visualRotation)
+    end
+
+    return nextCellX, nextCellZ
 end
 
 local function getSplitterInputLane(splitter, previousCellX, previousCellZ)
@@ -401,7 +535,7 @@ local function canReserveCell(player, cellX, cellZ)
 end
 
 local function isTransportCell(cellInfo)
-    return cellInfo and (cellInfo.type == "conveyor" or cellInfo.type == "splitter" or cellInfo.type == "merger")
+    return cellInfo and (cellInfo.type == "conveyor" or cellInfo.type == "curved_conveyor" or cellInfo.type == "splitter" or cellInfo.type == "merger")
 end
 
 local function canReceiveSplitOutput(cellInfo)
@@ -446,8 +580,17 @@ local function shouldAllowMergerInput(activeItem, mergerCellInfo, inputLane)
         if otherItem ~= activeItem and otherItem.player == activeItem.player and otherItem.model and otherItem.model.Parent and not otherItem.isMoving and not otherItem.waitingForMachine then
             local otherCurrentCell = getCellInfo(otherItem.player, otherItem.cellX, otherItem.cellZ)
             if isTransportCell(otherCurrentCell) and otherCurrentCell.type ~= "splitter" and otherCurrentCell.type ~= "merger" then
-                local otherDx, otherDz = getRoutingDirection(otherCurrentCell, otherItem)
-                local otherNextCell = getCellInfo(otherItem.player, otherItem.cellX + otherDx, otherItem.cellZ + otherDz)
+                local otherNextCellX = nil
+                local otherNextCellZ = nil
+                if otherCurrentCell.type == "curved_conveyor" then
+                    otherNextCellX, otherNextCellZ = RouteCurvedConveyor(otherCurrentCell, otherItem.previousCellX, otherItem.previousCellZ)
+                else
+                    local otherDx, otherDz = getRoutingDirection(otherCurrentCell, otherItem)
+                    otherNextCellX = otherItem.cellX + otherDx
+                    otherNextCellZ = otherItem.cellZ + otherDz
+                end
+
+                local otherNextCell = otherNextCellX ~= nil and otherNextCellZ ~= nil and getCellInfo(otherItem.player, otherNextCellX, otherNextCellZ) or nil
                 if otherNextCell and otherNextCell.instance == merger then
                     local otherLane = getMergerInputLane(merger, otherItem.cellX, otherItem.cellZ)
                     if otherLane and otherLane ~= inputLane then
@@ -814,6 +957,8 @@ local function tryStartNextSegment(activeItem)
     if currentCell.type == "splitter" then
         activeItem.spawnedOnSplitter = false
         nextCellX, nextCellZ = selectSplitterOutputCell(activeItem.player, currentCell, activeItem)
+    elseif currentCell.type == "curved_conveyor" then
+        nextCellX, nextCellZ = RouteCurvedConveyor(currentCell, activeItem.previousCellX, activeItem.previousCellZ, activeItem, true)
     elseif currentCell.type == "merger" then
         local inputLane = nil
         nextCellX, nextCellZ, inputLane = getMergerOutputCell(currentCell, activeItem)
