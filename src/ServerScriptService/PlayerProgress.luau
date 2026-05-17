@@ -111,6 +111,31 @@ local function MigrateProgressData(storedData)
 	return migrated
 end
 
+local function DeepCopy(value)
+	if type(value) ~= "table" then
+		return value
+	end
+
+	local copy = {}
+	for key, childValue in pairs(value) do
+		copy[key] = DeepCopy(childValue)
+	end
+
+	return copy
+end
+
+local function GetNextTownPrestigeStageInfo(currentStage)
+	currentStage = tonumber(currentStage) or 1
+
+	for _, stageInfo in pairs(Definitions.TOWN_PRESTIGE_STAGES) do
+		if (tonumber(stageInfo.stage) or 0) == currentStage + 1 then
+			return stageInfo
+		end
+	end
+
+	return nil
+end
+
 -- ============================================================================
 -- DataStore Operations
 -- ============================================================================
@@ -489,6 +514,42 @@ function PlayerProgress.IsShopItemUnlocked(player, itemName)
 	local unlockedItems = PlayerProgress.GetUnlockedShopItems(player)
 
 	return unlockedItems[itemName] == true
+end
+
+--[[
+	GetPublicProgressSnapshot(player: Player) -> table
+
+	Returns only progression data that is safe for clients to display.
+	No economy decisions should be made from this snapshot.
+]]
+function PlayerProgress.GetPublicProgressSnapshot(player)
+	if not player then
+		error("[PlayerProgress] Player is required")
+	end
+
+	local progress = PlayerProgress.GetPlayerProgress(player)
+	local statistics = progress.statistics or {}
+	local townPrestige = progress.townPrestige or {}
+	local currentStageInfo = PlayerProgress.GetTownPrestigeStageInfo(townPrestige.stage)
+	local nextStageInfo = GetNextTownPrestigeStageInfo(townPrestige.stage)
+
+	return {
+		lifetimeSold = DeepCopy(statistics.lifetimeSold or {}),
+		npcSold = DeepCopy(statistics.npcSold or {}),
+		mayorContribution = DeepCopy(statistics.mayorContribution or {}),
+		npcReputation = DeepCopy(progress.npcReputation or {}),
+		townPrestige = {
+			stage = tonumber(townPrestige.stage) or 1,
+			stageName = currentStageInfo and currentStageInfo.name or nil,
+			contributions = tonumber(townPrestige.contributions) or 0,
+			nextStage = nextStageInfo and {
+				stage = nextStageInfo.stage,
+				name = nextStageInfo.name,
+				requirements = DeepCopy(nextStageInfo.requirements or {}),
+				rewards = DeepCopy(nextStageInfo.rewards or {}),
+			} or nil,
+		},
+	}
 end
 
 --[[

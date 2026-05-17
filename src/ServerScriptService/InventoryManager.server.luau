@@ -390,6 +390,10 @@ local getTownPrestigeRemote = Instance.new("RemoteFunction")
 getTownPrestigeRemote.Name = "GetTownPrestige"
 getTownPrestigeRemote.Parent = ReplicatedStorage
 
+local getSalesStatsRemote = Instance.new("RemoteFunction")
+getSalesStatsRemote.Name = "GetSalesStats"
+getSalesStatsRemote.Parent = ReplicatedStorage
+
 local getPowerStatusRemote = Instance.new("RemoteFunction")
 getPowerStatusRemote.Name = "GetPowerStatus"
 getPowerStatusRemote.Parent = ReplicatedStorage
@@ -2127,6 +2131,10 @@ getTownPrestigeRemote.OnServerInvoke = function(player)
         generatorPowerCapacity = PowerSystem.GetGeneratorCapacity(player),
         unlockedShopItems = PlayerProgress.GetUnlockedShopItems(player),
     }
+end
+
+getSalesStatsRemote.OnServerInvoke = function(player)
+    return PlayerProgress.GetPublicProgressSnapshot(player)
 end
 
 -- Handle buy item request (Shop system)
