@@ -165,92 +165,15 @@ local CURVED_CONVEYOR_ROUTES = {
 
 local CURVED_CONVEYOR_ROUTE_ROTATION_OFFSET = 0
 
-local function formatCellForLog(cellX, cellZ)
-    if cellX == nil or cellZ == nil then
-        return "(nil,nil)"
-    end
-
-    return "(" .. tostring(cellX) .. "," .. tostring(cellZ) .. ")"
-end
-
-local function formatVectorForLog(position)
-    if not position then
-        return "(nil,nil,nil)"
-    end
-
-    return string.format("(%.3f, %.3f, %.3f)", position.X, position.Y, position.Z)
-end
-
-local function getRouteSideLabel(dx, dz)
-    if dx == -1 and dz == 0 then
-        return "sinistra(-X)"
-    elseif dx == 1 and dz == 0 then
-        return "destra(+X)"
-    elseif dx == 0 and dz == -1 then
-        return "alto(-Z)"
-    elseif dx == 0 and dz == 1 then
-        return "basso(+Z)"
-    end
-
-    return tostring(dx) .. "," .. tostring(dz)
-end
-
-local function logCurvedConveyorRoute(cellInfo, previousCellX, previousCellZ, nextCellX, nextCellZ, activeItem, route, rotation, visualRotation)
-    local curvedConveyor = cellInfo and cellInfo.instance
-    local player = activeItem and activeItem.player
-    local itemName = activeItem and activeItem.itemName or "unknown"
-    local cellX = curvedConveyor and curvedConveyor:GetAttribute("CellX") or nil
-    local cellZ = curvedConveyor and curvedConveyor:GetAttribute("CellZ") or nil
-    local pivot = curvedConveyor and curvedConveyor:GetPivot() or nil
-    local yawDegrees = 0
-
-    if pivot then
-        local _, yaw = pivot:ToOrientation()
-        yawDegrees = math.deg(yaw)
-    end
-
-    local expectedInputCell = route and formatCellForLog(cellX + route.inputX, cellZ + route.inputZ) or "(nil,nil)"
-    local expectedOutputCell = route and formatCellForLog(cellX + route.outputX, cellZ + route.outputZ) or "(nil,nil)"
-    local inputSide = route and getRouteSideLabel(route.inputX, route.inputZ) or "nil"
-    local outputSide = route and getRouteSideLabel(route.outputX, route.outputZ) or "nil"
-    local result = (nextCellX ~= nil and nextCellZ ~= nil) and "ACCEPTED" or "REJECTED"
-
-    print(string.format(
-        "[CurvedConveyorRoute] result=%s player=%s item=%s curved=%s cell=%s world=%s logicalRotation=%s visualRouteRotation=%s routeOffset=%s modelYaw=%.1f prevCell=%s expectedInput=%s inputSide=%s outputCell=%s outputSide=%s nextCell=%s",
-        result,
-        player and player.Name or "nil",
-        tostring(itemName),
-        curvedConveyor and curvedConveyor:GetFullName() or "nil",
-        formatCellForLog(cellX, cellZ),
-        formatVectorForLog(pivot and pivot.Position or nil),
-        tostring(rotation),
-        tostring(visualRotation),
-        tostring(CURVED_CONVEYOR_ROUTE_ROTATION_OFFSET),
-        yawDegrees,
-        formatCellForLog(previousCellX, previousCellZ),
-        expectedInputCell,
-        inputSide,
-        expectedOutputCell,
-        outputSide,
-        formatCellForLog(nextCellX, nextCellZ)
-    ))
-end
-
-local function RouteCurvedConveyor(cellInfo, previousCellX, previousCellZ, activeItem, shouldLog)
+local function RouteCurvedConveyor(cellInfo, previousCellX, previousCellZ)
     local curvedConveyor = cellInfo and cellInfo.instance
     if not curvedConveyor or not curvedConveyor.Parent or previousCellX == nil or previousCellZ == nil then
-        if shouldLog then
-            logCurvedConveyorRoute(cellInfo, previousCellX, previousCellZ, nil, nil, activeItem, nil, nil, nil)
-        end
         return nil, nil
     end
 
     local cellX = curvedConveyor:GetAttribute("CellX")
     local cellZ = curvedConveyor:GetAttribute("CellZ")
     if cellX == nil or cellZ == nil then
-        if shouldLog then
-            logCurvedConveyorRoute(cellInfo, previousCellX, previousCellZ, nil, nil, activeItem, nil, nil, nil)
-        end
         return nil, nil
     end
 
@@ -273,14 +196,13 @@ local function RouteCurvedConveyor(cellInfo, previousCellX, previousCellZ, activ
     if route and previousCellX == cellX + route.inputX and previousCellZ == cellZ + route.inputZ then
         nextCellX = cellX + route.outputX
         nextCellZ = cellZ + route.outputZ
+    elseif route and previousCellX == cellX + route.outputX and previousCellZ == cellZ + route.outputZ then
+        nextCellX = cellX + route.inputX
+        nextCellZ = cellZ + route.inputZ
     end
 
     if curvedConveyor then
         curvedConveyor:SetAttribute("DebugRouteAccepted", nextCellX ~= nil and nextCellZ ~= nil)
-    end
-
-    if shouldLog then
-        logCurvedConveyorRoute(cellInfo, previousCellX, previousCellZ, nextCellX, nextCellZ, activeItem, route, rotation, visualRotation)
     end
 
     return nextCellX, nextCellZ

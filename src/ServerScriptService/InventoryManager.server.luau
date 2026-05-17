@@ -31,6 +31,10 @@ local function getGridUnitSize()
     return GRID_UNIT_SIZE
 end
 
+local function shouldLogItemAction(itemName)
+    return not tostring(itemName):find("Conveyor", 1, true)
+end
+
 local function normalizeRotation(rotation)
     return math.floor(tonumber(rotation) or 0) % 4
 end
@@ -1337,7 +1341,18 @@ local function spawnSavedItems(player, itemsData, plotId)
                 end
             end
 
-            newItem:PivotTo(CFrame.new(position) * getRotationCFrame(rotation))
+            if itemInfo.itemName == "CurvedConveyor" and cellX ~= nil and cellZ ~= nil then
+                local plotInfo = getPlotInfo(plotId)
+                if plotInfo then
+                    local plotTopY = plotInfo.position.Y + plotInfo.size.Y / 2
+                    local footprintCenter = getFootprintCenter(cellX, cellZ, cellsX, cellsZ, plotInfo, plotTopY)
+                    pivotModelToFootprint(newItem, footprintCenter, plotTopY, rotation)
+                else
+                    newItem:PivotTo(CFrame.new(position) * getRotationCFrame(rotation))
+                end
+            else
+                newItem:PivotTo(CFrame.new(position) * getRotationCFrame(rotation))
+            end
             
             -- Set attributes
             local itemDef = Definitions.GetItem(itemInfo.itemName)
@@ -1599,7 +1614,9 @@ placeItemRemote.OnServerEvent:Connect(function(player, itemName, position, scale
     savePlayerData(player)
     notifyInventoryUpdated(player)
     
-    print(player.Name .. " placed " .. itemName .. " at " .. tostring(position) .. " on Plot " .. plotId)
+    if shouldLogItemAction(itemName) then
+        print(player.Name .. " placed " .. itemName .. " at " .. tostring(position) .. " on Plot " .. plotId)
+    end
     return true
 end)
 
@@ -1655,7 +1672,9 @@ deleteItemRemote.OnServerEvent:Connect(function(player, item)
     reconcileSellZoneOwnership(player)
     
     -- No refund - items are free to delete
-    print(player.Name .. " deleted " .. itemName .. " and removed it from world")
+    if shouldLogItemAction(itemName) then
+        print(player.Name .. " deleted " .. itemName .. " and removed it from world")
+    end
     
     -- Save after deleting
     savePlayerData(player)
@@ -1694,6 +1713,8 @@ rotateItemRemote.OnServerEvent:Connect(function(player, itemOrPosition)
     local cellsX, cellsZ = getRotatedFootprint(itemName, nextRotation)
 
     local nextPosition = pivot.Position
+    local nextFootprintCenter = nil
+    local nextGroundY = nil
     local cellX = item:GetAttribute("CellX")
     local cellZ = item:GetAttribute("CellZ")
     local plotId = playerPlots[player.UserId]
@@ -1703,10 +1724,16 @@ rotateItemRemote.OnServerEvent:Connect(function(player, itemOrPosition)
             return
         end
 
-        nextPosition = getFootprintCenter(cellX, cellZ, cellsX, cellsZ, plotInfo, pivot.Position.Y)
+        nextGroundY = plotInfo.position.Y + plotInfo.size.Y / 2
+        nextFootprintCenter = getFootprintCenter(cellX, cellZ, cellsX, cellsZ, plotInfo, nextGroundY)
+        nextPosition = Vector3.new(nextFootprintCenter.X, pivot.Position.Y, nextFootprintCenter.Z)
     end
 
-    item:PivotTo(CFrame.new(nextPosition) * getRotationCFrame(nextRotation))
+    if itemName == "CurvedConveyor" and nextFootprintCenter and nextGroundY then
+        pivotModelToFootprint(item, nextFootprintCenter, nextGroundY, nextRotation)
+    else
+        item:PivotTo(CFrame.new(nextPosition) * getRotationCFrame(nextRotation))
+    end
     item:SetAttribute("Rotation", nextRotation)
     item:SetAttribute("CellsX", cellsX)
     item:SetAttribute("CellsZ", cellsZ)

@@ -792,6 +792,8 @@ local function rotateContextMenuTarget()
 
         local pivot = contextMenuTarget:GetPivot()
         local nextPosition = pivot.Position
+        local nextFootprintCenter = nil
+        local nextGroundY = nil
         local cellX = contextMenuTarget:GetAttribute("CellX")
         local cellZ = contextMenuTarget:GetAttribute("CellZ")
         local plotInfo = getPlotInfo()
@@ -806,6 +808,8 @@ local function rotateContextMenuTarget()
             end
 
             local footprintCenter = getFootprintCenter(cellX, cellZ, cellsX, cellsZ, plotInfo, gridUnit)
+            nextFootprintCenter = footprintCenter
+            nextGroundY = footprintCenter.Y
             nextPosition = Vector3.new(footprintCenter.X, pivot.Position.Y, footprintCenter.Z)
         end
 
@@ -813,7 +817,11 @@ local function rotateContextMenuTarget()
         contextMenuTarget:SetAttribute("Rotation", nextRotation)
         contextMenuTarget:SetAttribute("CellsX", cellsX)
         contextMenuTarget:SetAttribute("CellsZ", cellsZ)
-        contextMenuTarget:PivotTo(CFrame.new(nextPosition) * getRotationCFrame(nextRotation))
+        if contextMenuTarget:GetAttribute("ItemName") == "CurvedConveyor" and nextFootprintCenter and nextGroundY then
+            pivotModelToFootprint(contextMenuTarget, nextFootprintCenter, nextGroundY, nextRotation)
+        else
+            contextMenuTarget:PivotTo(CFrame.new(nextPosition) * getRotationCFrame(nextRotation))
+        end
     end
 
     hideItemContextMenu()
