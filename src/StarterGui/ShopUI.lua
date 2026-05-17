@@ -121,7 +121,7 @@ function ShopUI.Create(parent)
 	local statusText = Instance.new("TextLabel")
 	statusText.Name = "StatusText"
 	statusText.Size = UDim2.new(1, -32, 0, 28)
-	statusText.Position = UDim2.fromOffset(16, 56)
+	statusText.Position = UDim2.fromOffset(16, 94)
 	statusText.BackgroundTransparency = 1
 	statusText.Text = ""
 	statusText.TextColor3 = Color3.fromRGB(255, 255, 255)
@@ -130,10 +130,57 @@ function ShopUI.Create(parent)
 	statusText.TextXAlignment = Enum.TextXAlignment.Left
 	statusText.Parent = window
 
+	local filterBar = Instance.new("ScrollingFrame")
+	filterBar.Name = "FilterBar"
+	filterBar.Size = UDim2.new(1, -32, 0, 30)
+	filterBar.Position = UDim2.fromOffset(16, 58)
+	filterBar.BackgroundTransparency = 1
+	filterBar.BorderSizePixel = 0
+	filterBar.CanvasSize = UDim2.fromOffset(0, 0)
+	filterBar.AutomaticCanvasSize = Enum.AutomaticSize.X
+	filterBar.ScrollingDirection = Enum.ScrollingDirection.X
+	filterBar.ScrollBarThickness = 0
+	filterBar.Parent = window
+
+	local filterLayout = Instance.new("UIListLayout")
+	filterLayout.Name = "FilterLayout"
+	filterLayout.FillDirection = Enum.FillDirection.Horizontal
+	filterLayout.HorizontalAlignment = Enum.HorizontalAlignment.Left
+	filterLayout.VerticalAlignment = Enum.VerticalAlignment.Center
+	filterLayout.SortOrder = Enum.SortOrder.LayoutOrder
+	filterLayout.Padding = UDim.new(0, 8)
+	filterLayout.Parent = filterBar
+
+	local filterButtons = {}
+	local filters = {
+		{ key = "all", label = "All" },
+		{ key = "machine", label = "Machines" },
+		{ key = "transportation", label = "Transport" },
+		{ key = "power", label = "Power" },
+		{ key = "decoration", label = "Decorations" },
+	}
+
+	for index, filter in ipairs(filters) do
+		local button = Instance.new("TextButton")
+		button.Name = filter.key .. "Filter"
+		button.LayoutOrder = index
+		button.Size = UDim2.fromOffset(filter.key == "decoration" and 112 or 86, 28)
+		button.BackgroundColor3 = Color3.fromRGB(39, 47, 55)
+		button.BorderSizePixel = 0
+		button.Text = filter.label
+		button.TextColor3 = Color3.fromRGB(218, 228, 236)
+		button.TextSize = 12
+		button.Font = Enum.Font.GothamBold
+		button.Parent = filterBar
+		addCorner(button, 6)
+		addStroke(button, Color3.fromRGB(78, 100, 116), 1, 0.2)
+		filterButtons[filter.key] = button
+	end
+
 	local scrollFrame = Instance.new("ScrollingFrame")
 	scrollFrame.Name = "Items"
-	scrollFrame.Size = UDim2.new(1, -32, 1, -100)
-	scrollFrame.Position = UDim2.fromOffset(16, 88)
+	scrollFrame.Size = UDim2.new(1, -32, 1, -138)
+	scrollFrame.Position = UDim2.fromOffset(16, 126)
 	scrollFrame.BackgroundColor3 = Color3.fromRGB(30, 36, 42)
 	scrollFrame.BorderSizePixel = 0
 	scrollFrame.ScrollBarThickness = 8
@@ -168,6 +215,8 @@ function ShopUI.Create(parent)
 		moneyText = moneyText,
 		statusText = statusText,
 		closeButton = closeButton,
+		filterBar = filterBar,
+		filterButtons = filterButtons,
 	}
 end
 

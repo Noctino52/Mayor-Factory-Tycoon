@@ -896,6 +896,174 @@ local function createGeneratorTemplate(itemName)
     return generator
 end
 
+local function createDecorTreeTemplate(itemName)
+    local tree = Instance.new("Model")
+    tree.Name = itemName
+
+    local trunk = Instance.new("Part")
+    trunk.Name = "Trunk"
+    trunk.Size = Vector3.new(1.1, 3.0, 1.1)
+    trunk.CFrame = CFrame.new(0, 1.5, 0)
+    trunk.Anchored = true
+    trunk.CanCollide = true
+    trunk.Material = Enum.Material.Wood
+    trunk.Color = Color3.fromRGB(104, 70, 39)
+    trunk.Parent = tree
+
+    local leaves = Instance.new("Part")
+    leaves.Name = "Leaves"
+    leaves.Shape = Enum.PartType.Ball
+    leaves.Size = Vector3.new(4.4, 3.2, 4.4)
+    leaves.CFrame = CFrame.new(0, 3.75, 0)
+    leaves.Anchored = true
+    leaves.CanCollide = true
+    leaves.Material = Enum.Material.Grass
+    leaves.Color = Color3.fromRGB(62, 138, 64)
+    leaves.Parent = tree
+
+    tree.PrimaryPart = trunk
+    tree.Parent = templatesFolder
+
+    return tree
+end
+
+local function createFactorySignTemplate(itemName)
+    local sign = Instance.new("Model")
+    sign.Name = itemName
+
+    local post = Instance.new("Part")
+    post.Name = "Post"
+    post.Size = Vector3.new(0.45, 3.0, 0.45)
+    post.CFrame = CFrame.new(0, 1.5, 0)
+    post.Anchored = true
+    post.CanCollide = true
+    post.Material = Enum.Material.Metal
+    post.Color = Color3.fromRGB(92, 88, 82)
+    post.Parent = sign
+
+    local board = Instance.new("Part")
+    board.Name = "Board"
+    board.Size = Vector3.new(4.8, 1.8, 0.35)
+    board.CFrame = CFrame.new(0, 2.7, -0.05)
+    board.Anchored = true
+    board.CanCollide = true
+    board.Material = Enum.Material.WoodPlanks
+    board.Color = Color3.fromRGB(126, 85, 46)
+    board.Parent = sign
+
+    local surfaceGui = Instance.new("SurfaceGui")
+    surfaceGui.Name = "SignText"
+    surfaceGui.Face = Enum.NormalId.Front
+    surfaceGui.SizingMode = Enum.SurfaceGuiSizingMode.PixelsPerStud
+    surfaceGui.PixelsPerStud = 32
+    surfaceGui.Parent = board
+
+    local label = Instance.new("TextLabel")
+    label.Name = "Label"
+    label.Size = UDim2.fromScale(1, 1)
+    label.BackgroundTransparency = 1
+    label.Text = "FACTORY"
+    label.TextColor3 = Color3.fromRGB(245, 235, 208)
+    label.TextScaled = true
+    label.Font = Enum.Font.GothamBold
+    label.Parent = surfaceGui
+
+    sign.PrimaryPart = post
+    sign.Parent = templatesFolder
+
+    return sign
+end
+
+local function createStreetLampTemplate(itemName)
+    local lamp = Instance.new("Model")
+    lamp.Name = itemName
+
+    local pole = Instance.new("Part")
+    pole.Name = "Pole"
+    pole.Size = Vector3.new(0.35, 4.4, 0.35)
+    pole.CFrame = CFrame.new(0, 2.2, 0)
+    pole.Anchored = true
+    pole.CanCollide = true
+    pole.Material = Enum.Material.Metal
+    pole.Color = Color3.fromRGB(50, 54, 58)
+    pole.Parent = lamp
+
+    local arm = Instance.new("Part")
+    arm.Name = "Arm"
+    arm.Size = Vector3.new(2.0, 0.28, 0.28)
+    arm.CFrame = CFrame.new(0.85, 4.2, 0)
+    arm.Anchored = true
+    arm.CanCollide = false
+    arm.CanQuery = false
+    arm.CanTouch = false
+    arm.Material = Enum.Material.Metal
+    arm.Color = Color3.fromRGB(50, 54, 58)
+    arm.Parent = lamp
+
+    local bulb = Instance.new("Part")
+    bulb.Name = "Bulb"
+    bulb.Shape = Enum.PartType.Ball
+    bulb.Size = Vector3.new(0.85, 0.85, 0.85)
+    bulb.CFrame = CFrame.new(1.9, 4.05, 0)
+    bulb.Anchored = true
+    bulb.CanCollide = false
+    bulb.CanQuery = false
+    bulb.CanTouch = false
+    bulb.Material = Enum.Material.Neon
+    bulb.Color = Color3.fromRGB(255, 226, 132)
+    bulb.Parent = lamp
+
+    local light = Instance.new("PointLight")
+    light.Name = "Light"
+    light.Brightness = 1.2
+    light.Range = 12
+    light.Color = Color3.fromRGB(255, 226, 160)
+    light.Parent = bulb
+
+    lamp.PrimaryPart = pole
+    lamp.Parent = templatesFolder
+
+    return lamp
+end
+
+local function createDecorationTemplate(itemName)
+    local existing = templatesFolder:FindFirstChild(itemName)
+    if existing then
+        return existing
+    end
+
+    local itemDef = Definitions.GetItem(itemName)
+    if not itemDef or itemDef.type ~= "decoration" then
+        return nil
+    end
+
+    if itemName == "DecorTree" then
+        return createDecorTreeTemplate(itemName)
+    elseif itemName == "FactorySign" then
+        return createFactorySignTemplate(itemName)
+    elseif itemName == "StreetLamp" then
+        return createStreetLampTemplate(itemName)
+    end
+
+    local decor = Instance.new("Model")
+    decor.Name = itemName
+
+    local base = Instance.new("Part")
+    base.Name = "DecorBase"
+    base.Size = Vector3.new(3.2, 1.0, 3.2)
+    base.CFrame = CFrame.new(0, 0.5, 0)
+    base.Anchored = true
+    base.CanCollide = true
+    base.Material = Enum.Material.SmoothPlastic
+    base.Color = Color3.fromRGB(120, 132, 140)
+    base.Parent = decor
+
+    decor.PrimaryPart = base
+    decor.Parent = templatesFolder
+
+    return decor
+end
+
 local SELL_ZONE_COLORS = {
     Mira = Color3.fromRGB(58, 150, 84),
     Bront = Color3.fromRGB(139, 96, 54),
@@ -1003,6 +1171,10 @@ local function ensureItemTemplate(itemName)
     local itemDef = Definitions.GetItem(itemName)
     if itemDef and itemDef.type == "generator" then
         return createGeneratorTemplate(itemName)
+    end
+
+    if itemDef and itemDef.type == "decoration" then
+        return createDecorationTemplate(itemName)
     end
 
     if itemDef and itemDef.type == "sell_zone" then

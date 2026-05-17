@@ -3,7 +3,7 @@
 
 	Client behavior for the base shop:
 	- Click the Shop button to toggle
-	- Shows every purchasable Definition item
+	- Shows purchasable Definition items with category filters
 	- Sends buy requests to the server and displays server-authored results
 ]]
 
@@ -28,12 +28,21 @@ local shopTransactionResultRemote = ReplicatedStorage:WaitForChild("ShopTransact
 local CATEGORY_ORDER = {
 	machine = 1,
 	transportation = 2,
-	sell_zone = 3,
+	power = 3,
 	decoration = 4,
+}
+
+local FILTERS = {
+	all = true,
+	machine = true,
+	transportation = true,
+	power = true,
+	decoration = true,
 }
 
 local ui = ShopUI.Create(playerGui)
 local isShopOpen = false
+local selectedFilter = "all"
 local currentMoney = 0
 local purchasableItems = {}
 local itemRows = {}
@@ -42,6 +51,18 @@ local pendingSells = {}
 
 local function getCategoryOrder(category)
 	return CATEGORY_ORDER[category] or 99
+end
+
+local function doesItemPassFilter(item)
+	return selectedFilter == "all" or item.category == selectedFilter
+end
+
+local function updateFilterButtons()
+	for filterKey, button in pairs(ui.filterButtons or {}) do
+		local isSelected = filterKey == selectedFilter
+		button.BackgroundColor3 = isSelected and Color3.fromRGB(52, 112, 150) or Color3.fromRGB(39, 47, 55)
+		button.TextColor3 = isSelected and Color3.fromRGB(255, 255, 255) or Color3.fromRGB(218, 228, 236)
+	end
 end
 
 local function setSellPending(itemName, pending)
@@ -282,11 +303,26 @@ end
 local function renderShopItems()
 	clearItemRows()
 
-	for index, item in ipairs(purchasableItems) do
-		createItemRow(item, index)
+	local layoutOrder = 0
+	for _, item in ipairs(purchasableItems) do
+		if doesItemPassFilter(item) then
+			layoutOrder += 1
+			createItemRow(item, layoutOrder)
+		end
 	end
 
 	updateCanvasSize()
+	refreshInventoryCounts()
+	updateFilterButtons()
+end
+
+local function selectFilter(filterKey)
+	if not FILTERS[filterKey] then
+		return
+	end
+
+	selectedFilter = filterKey
+	renderShopItems()
 end
 
 local function openShop()
@@ -352,6 +388,12 @@ end)
 ui.gridLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(updateCanvasSize)
 ui.openButton.MouseButton1Click:Connect(toggleShop)
 ui.closeButton.MouseButton1Click:Connect(closeShop)
+
+for filterKey, button in pairs(ui.filterButtons or {}) do
+	button.MouseButton1Click:Connect(function()
+		selectFilter(filterKey)
+	end)
+end
 
 loadPurchasableItems()
 renderShopItems()
