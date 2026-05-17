@@ -19,6 +19,7 @@ local ConveyorSystem = {}
 
 local PRODUCTION_ITEM_SPEED = 16
 local MAX_ITEMS_PER_CELL = 5
+local MAX_ACTIVE_ITEMS_PER_PLOT = 100
 local GRID_UNIT_SIZE = 8
 local ITEM_HEIGHT_OFFSET = 0.65
 
@@ -27,6 +28,7 @@ local dependencies = nil
 local initialized = false
 local machineInputHandler = nil
 local sellHandler = nil
+local nextProductionItemId = 0
 
 local productionItemsFolder = workspace:FindFirstChild("ProductionItems")
 if not productionItemsFolder then
@@ -45,6 +47,42 @@ end
 
 local function cellKey(cellX, cellZ)
     return tostring(cellX) .. "_" .. tostring(cellZ)
+end
+
+local function getPlayerPlotInfo(player)
+    if not dependencies or not dependencies.getPlayerPlot then
+        return nil
+    end
+
+    return dependencies.getPlayerPlot(player)
+end
+
+local function getPlayerPlotId(player)
+    local plotInfo = getPlayerPlotInfo(player)
+    return plotInfo and plotInfo.id or nil
+end
+
+local function getNextProductionItemId(player)
+    nextProductionItemId += 1
+    return tostring(player.UserId) .. "_" .. tostring(nextProductionItemId)
+end
+
+local function isOwnedByPlayerPlot(player, instance)
+    if not player or not instance then
+        return false
+    end
+
+    local owner = instance:GetAttribute("Owner")
+    if owner ~= player.UserId then
+        return false
+    end
+
+    local plotId = getPlayerPlotId(player)
+    if not plotId then
+        return false
+    end
+
+    return instance:GetAttribute("PlotId") == plotId
 end
 
 local function getFirstBasePart(instance)
@@ -79,11 +117,7 @@ local function getConveyorDirection(item)
 end
 
 local function gridToWorldPosition(player, cellX, cellZ)
-    if not dependencies or not dependencies.getPlayerPlot then
-        return nil
-    end
-
-    local plotInfo = dependencies.getPlayerPlot(player)
+    local plotInfo = getPlayerPlotInfo(player)
     if not plotInfo then
         return nil
     end
@@ -394,7 +428,7 @@ end
 
 local function getCellInfo(player, cellX, cellZ)
     for _, item in ipairs(getPlacedItems(player)) do
-        if item and item.Parent and doesFootprintContain(item, cellX, cellZ) then
+        if item and item.Parent and isOwnedByPlayerPlot(player, item) and doesFootprintContain(item, cellX, cellZ) then
             local itemName = item:GetAttribute("ItemName")
             local itemDef = Definitions.GetItem(itemName)
             local machineDef = Definitions.GetMachine(itemName)
@@ -440,7 +474,7 @@ local function countItemsInCell(player, cellX, cellZ)
     local count = 0
 
     for _, activeItem in ipairs(activeItems) do
-        if activeItem.player == player and activeItem.model and activeItem.model.Parent then
+        if activeItem.player == player and activeItem.model and activeItem.model.Parent and isOwnedByPlayerPlot(player, activeItem.model) then
             if activeItem.cellX == cellX and activeItem.cellZ == cellZ then
                 count += 1
             elseif activeItem.targetCellX == cellX and activeItem.targetCellZ == cellZ then
@@ -454,6 +488,37 @@ end
 
 local function canReserveCell(player, cellX, cellZ)
     return countItemsInCell(player, cellX, cellZ) < MAX_ITEMS_PER_CELL
+end
+
+local function countActiveItemsInPlot(plotId)
+    local count = 0
+
+    for _, activeItem in ipairs(activeItems) do
+        if activeItem.plotId == plotId and activeItem.model and activeItem.model.Parent then
+            count += 1
+        end
+    end
+
+    return count
+end
+
+local function cleanupProductionItemsForPlayer(player)
+    for index = #activeItems, 1, -1 do
+        local activeItem = activeItems[index]
+        if activeItem.player == player or (activeItem.model and activeItem.model:GetAttribute("Owner") == player.UserId) then
+            local model = activeItem.model
+            table.remove(activeItems, index)
+            if model and model.Parent then
+                model:Destroy()
+            end
+        end
+    end
+
+    for _, item in ipairs(productionItemsFolder:GetChildren()) do
+        if item:GetAttribute("Owner") == player.UserId then
+            item:Destroy()
+        end
+    end
 end
 
 local function isTransportCell(cellInfo)
@@ -556,7 +621,7 @@ local function setItemCFrame(item, cframe)
     end
 end
 
-local function createProductionItemInstance(itemName, cellX, cellZ, player)
+local function createProductionItemInstance(itemName, cellX, cellZ, player, plotId, itemId, spawnedAt)
     local item
     if productionItemModule and productionItemModule.CreateInstance then
         item = productionItemModule.CreateInstance(itemName)
@@ -582,7 +647,10 @@ local function createProductionItemInstance(itemName, cellX, cellZ, player)
 
     setItemCFrame(item, CFrame.new(worldPosition))
     item:SetAttribute("Owner", player.UserId)
+    item:SetAttribute("PlotId", plotId)
     item:SetAttribute("ItemName", itemName)
+    item:SetAttribute("ItemId", itemId)
+    item:SetAttribute("SpawnedAt", spawnedAt)
     item:SetAttribute("CellX", cellX)
     item:SetAttribute("CellZ", cellZ)
     item.Parent = productionItemsFolder
@@ -781,7 +849,7 @@ local function sellItem(activeItem, cellInfo, sellCellX, sellCellZ, fadePosition
         return false
     end
 
-    local sold = sellHandler(activeItem.player, activeItem.itemName, saleCellX, saleCellZ)
+    local sold = sellHandler(activeItem.player, activeItem.itemName, saleCellX, saleCellZ, activeItem.model, activeItem)
     fadeProductionItemInPlace(activeItem, salePosition)
     return sold == true
 end
@@ -792,7 +860,7 @@ local function feedMachine(cellInfo, activeItem)
         return false
     end
 
-    local accepted, message = machineInputHandler(activeItem.player, cellInfo.instance, activeItem.itemName)
+    local accepted, message = machineInputHandler(activeItem.player, cellInfo.instance, activeItem.itemName, activeItem.model, activeItem)
     if accepted then
         activeItem.waitingForMachine = false
         destroyProductionItem(activeItem, false)
@@ -1014,7 +1082,16 @@ function ConveyorSystem.SpawnProductionItem(player, itemName, cellX, cellZ, conv
         return nil, "Invalid production item"
     end
 
+    local plotId = getPlayerPlotId(player)
+    if not plotId then
+        return nil, "No plot assigned"
+    end
+
     if conveyor and typeof(conveyor) == "Instance" then
+        if not isOwnedByPlayerPlot(player, conveyor) then
+            return nil, "Invalid conveyor ownership"
+        end
+
         cellX = conveyor:GetAttribute("CellX") or cellX
         cellZ = conveyor:GetAttribute("CellZ") or cellZ
     end
@@ -1027,11 +1104,21 @@ function ConveyorSystem.SpawnProductionItem(player, itemName, cellX, cellZ, conv
         return nil, "No transport at target cell"
     end
 
+    if not cellInfo.instance or not isOwnedByPlayerPlot(player, cellInfo.instance) then
+        return nil, "Invalid transport ownership"
+    end
+
+    if countActiveItemsInPlot(plotId) >= MAX_ACTIVE_ITEMS_PER_PLOT then
+        return nil, "Too many active production items"
+    end
+
     if not canReserveCell(player, cellX, cellZ) then
         return nil, "Conveyor cell is full"
     end
 
-    local item = createProductionItemInstance(itemName, cellX, cellZ, player)
+    local spawnedAt = tick()
+    local itemId = getNextProductionItemId(player)
+    local item = createProductionItemInstance(itemName, cellX, cellZ, player, plotId, itemId, spawnedAt)
     if not item then
         return nil, "Could not create production item"
     end
@@ -1041,8 +1128,10 @@ function ConveyorSystem.SpawnProductionItem(player, itemName, cellX, cellZ, conv
         itemName = itemName,
         cellX = cellX,
         cellZ = cellZ,
+        plotId = plotId,
+        itemId = itemId,
         player = player,
-        startTime = tick(),
+        startTime = spawnedAt,
         totalDistance = GRID_UNIT_SIZE,
         segmentProgress = 0,
         visitedCells = {
@@ -1080,20 +1169,22 @@ function ConveyorSystem.Initialize(newDependencies)
     end)
 
     Players.PlayerRemoving:Connect(function(player)
-        for index = #activeItems, 1, -1 do
-            if activeItems[index].player == player then
-                local model = activeItems[index].model
-                table.remove(activeItems, index)
-                if model and model.Parent then
-                    model:Destroy()
-                end
-            end
-        end
+        cleanupProductionItemsForPlayer(player)
     end)
 end
 
 function ConveyorSystem.GetActiveItemCount()
     return #activeItems
+end
+
+function ConveyorSystem.GetActiveItemCountForPlot(plotId)
+    return countActiveItemsInPlot(plotId)
+end
+
+function ConveyorSystem.ClearPlayer(player)
+    if player then
+        cleanupProductionItemsForPlayer(player)
+    end
 end
 
 function ConveyorSystem.SetMachineInputHandler(handler)

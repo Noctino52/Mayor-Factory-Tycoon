@@ -8,6 +8,9 @@ local PlayerProgress = require(game.ServerScriptService.PlayerProgress)
 local SellSystem = {}
 
 local sellZones = {}
+local sellRateByPlayer = {}
+
+local MAX_SELL_EVENTS_PER_SECOND = 20
 
 local saleFeedbackRemote = ReplicatedStorage:FindFirstChild("ProductionItemSold")
 if not saleFeedbackRemote then
@@ -30,6 +33,30 @@ local function acceptsItem(npcData, itemName)
     return false
 end
 
+local function isPlacedItemOwnedByPlayer(player, item)
+    return player and item and item:GetAttribute("Owner") == player.UserId and item:GetAttribute("PlotId") ~= nil
+end
+
+local function canConsumeSellEvent(player)
+    local now = tick()
+    local state = sellRateByPlayer[player]
+
+    if not state or now - state.windowStart >= 1 then
+        sellRateByPlayer[player] = {
+            windowStart = now,
+            count = 1,
+        }
+        return true
+    end
+
+    if state.count >= MAX_SELL_EVENTS_PER_SECOND then
+        return false
+    end
+
+    state.count += 1
+    return true
+end
+
 function SellSystem.CreateSellZone(player, cellX, cellZ, npcName, instance)
     if not player or not player.Parent then
         return false, "Invalid player"
@@ -40,8 +67,13 @@ function SellSystem.CreateSellZone(player, cellX, cellZ, npcName, instance)
         return false, "Invalid NPC"
     end
 
+    if instance and not isPlacedItemOwnedByPlayer(player, instance) then
+        return false, "Invalid sell zone ownership"
+    end
+
     cellX = math.floor(tonumber(cellX) or 0)
     cellZ = math.floor(tonumber(cellZ) or 0)
+    local plotId = instance and instance:GetAttribute("PlotId") or nil
 
     if not sellZones[player] then
         sellZones[player] = {}
@@ -50,6 +82,7 @@ function SellSystem.CreateSellZone(player, cellX, cellZ, npcName, instance)
     sellZones[player][cellKey(cellX, cellZ)] = {
         npcName = npcName,
         instance = instance,
+        plotId = plotId,
     }
 
     if instance and instance.Parent then
@@ -61,6 +94,10 @@ end
 
 function SellSystem.RegisterPlacedItem(player, item)
     if not item or not item.Parent then
+        return false
+    end
+
+    if not isPlacedItemOwnedByPlayer(player, item) then
         return false
     end
 
@@ -102,13 +139,39 @@ end
 
 function SellSystem.ClearPlayer(player)
     sellZones[player] = nil
+    sellRateByPlayer[player] = nil
 end
 
-function SellSystem.SellItem(player, itemName, cellX, cellZ)
+function SellSystem.SellItem(player, itemName, cellX, cellZ, productionItem)
+    if not player or not player.Parent then
+        return false, "Invalid player"
+    end
+
+    if not canConsumeSellEvent(player) then
+        return false, "Sell rate limit exceeded"
+    end
+
     local zones = sellZones[player]
     local zone = zones and zones[cellKey(cellX, cellZ)]
     if not zone then
         return false, "No sell zone at cell"
+    end
+
+    local zoneInstance = zone.instance
+    if not zoneInstance or not zoneInstance.Parent or not isPlacedItemOwnedByPlayer(player, zoneInstance) then
+        return false, "Invalid sell zone ownership"
+    end
+
+    if zoneInstance:GetAttribute("CellX") ~= cellX or zoneInstance:GetAttribute("CellZ") ~= cellZ then
+        return false, "Sell zone moved"
+    end
+
+    if not productionItem or productionItem:GetAttribute("Owner") ~= player.UserId or productionItem:GetAttribute("PlotId") ~= zone.plotId then
+        return false, "Invalid production item ownership"
+    end
+
+    if productionItem:GetAttribute("ItemName") ~= itemName then
+        return false, "Production item mismatch"
     end
 
     local itemData = Definitions.GetItem(itemName)

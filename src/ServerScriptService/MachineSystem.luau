@@ -10,6 +10,23 @@ local MachineSystem = {}
 local activeMachines = {}
 local initialized = false
 
+local function isPlacedItemOwnedByPlayer(player, item)
+    return player and item and item:GetAttribute("Owner") == player.UserId and item:GetAttribute("PlotId") ~= nil
+end
+
+local function doesProductionItemMatchMachine(player, machineInstance, productionItem)
+    if not isPlacedItemOwnedByPlayer(player, machineInstance) then
+        return false
+    end
+
+    if not productionItem or not productionItem.Parent then
+        return false
+    end
+
+    return productionItem:GetAttribute("Owner") == player.UserId
+        and productionItem:GetAttribute("PlotId") == machineInstance:GetAttribute("PlotId")
+end
+
 local function validateMachineDefinitions()
     local outputsByItem = {}
 
@@ -380,6 +397,10 @@ function MachineSystem.RegisterMachine(player, cellX, cellZ, machineName, instan
         return false
     end
 
+    if instance and not isPlacedItemOwnedByPlayer(player, instance) then
+        return false
+    end
+
     local machineData = Definitions.GetMachine(machineName)
     if not machineData then
         return false
@@ -448,6 +469,10 @@ function MachineSystem.RegisterPlacedItem(player, item)
         return false
     end
 
+    if not isPlacedItemOwnedByPlayer(player, item) then
+        return false
+    end
+
     local itemName = item:GetAttribute("ItemName")
     local cellX = item:GetAttribute("CellX")
     local cellZ = item:GetAttribute("CellZ")
@@ -478,10 +503,18 @@ function MachineSystem.RegisterPlayerMachines(player, placedItems)
     end
 end
 
-function MachineSystem.FeedMachine(player, machineInstance, itemName)
+function MachineSystem.FeedMachine(player, machineInstance, itemName, productionItem)
     local machine = getMachineForInstance(player, machineInstance)
     if not machine then
         return false, "Machine is not registered"
+    end
+
+    if not doesProductionItemMatchMachine(player, machineInstance, productionItem) then
+        return false, "Invalid item ownership"
+    end
+
+    if productionItem:GetAttribute("ItemName") ~= itemName then
+        return false, "Production item mismatch"
     end
 
     local machineData = Definitions.GetMachine(machine.name)

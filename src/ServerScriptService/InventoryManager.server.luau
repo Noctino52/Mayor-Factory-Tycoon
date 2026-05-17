@@ -1465,6 +1465,42 @@ local function isWithinPlot(position, itemSize, plotId)
            position.Z >= minZ and position.Z <= maxZ
 end
 
+local function isPlotAssignedToPlayer(player, plotId)
+    return plotId ~= nil and playerPlots[player.UserId] == plotId and plotAssignments[plotId] == player.UserId
+end
+
+local function isInstanceOwnedByPlayerPlot(player, item)
+    if not player or not item then
+        return false
+    end
+
+    if item:GetAttribute("Owner") ~= player.UserId then
+        return false
+    end
+
+    local plotId = playerPlots[player.UserId]
+    if not isPlotAssignedToPlayer(player, plotId) then
+        return false
+    end
+
+    return item:GetAttribute("PlotId") == plotId
+end
+
+local function isTrackedPlacedItem(player, item)
+    local data = playerData[player]
+    if not data then
+        return false
+    end
+
+    for _, placedItem in ipairs(data.placedItems) do
+        if placedItem == item then
+            return true
+        end
+    end
+
+    return false
+end
+
 -- Function to find a free plot
 local function findFreePlot()
     for plotId = 1, MAX_PLOTS do
@@ -1682,6 +1718,7 @@ local function serializePlacedItem(item)
 
     return {
         itemName = itemName,
+        plotId = item:GetAttribute("PlotId"),
         cellX = math.floor(tonumber(cellX) or 0),
         cellZ = math.floor(tonumber(cellZ) or 0),
         rotation = normalizeRotation(item:GetAttribute("Rotation")),
@@ -1731,6 +1768,7 @@ local function migrateSavedPlacedItem(itemInfo, plotId)
 
     return {
         itemName = itemName,
+        plotId = plotId,
         cellX = math.floor(tonumber(cellX) or 0),
         cellZ = math.floor(tonumber(cellZ) or 0),
         rotation = rotation,
@@ -1944,6 +1982,7 @@ local function spawnSavedItems(player, itemsData, plotId)
             -- Set attributes
             local itemDef = Definitions.GetItem(itemInfo.itemName)
             newItem:SetAttribute("Owner", player.UserId)
+            newItem:SetAttribute("PlotId", plotId)
             newItem:SetAttribute("ItemName", itemInfo.itemName)
             newItem:SetAttribute("CellsX", cellsX)
             newItem:SetAttribute("CellsZ", cellsZ)
@@ -2055,6 +2094,7 @@ local function onPlayerRemoving(player)
     -- Save player data before leaving
     savePlayerData(player)
 
+    ConveyorSystem.ClearPlayer(player)
     MachineSystem.ClearPlayer(player)
     PowerSystem.ClearPlayer(player)
     SellSystem.ClearPlayer(player)
@@ -2085,7 +2125,7 @@ placeItemRemote.OnServerEvent:Connect(function(player, itemName, position, scale
     
     -- Get player's assigned plot
     local plotId = playerPlots[player.UserId]
-    if not plotId then
+    if not isPlotAssignedToPlayer(player, plotId) then
         return false, "No plot assigned"
     end
     
@@ -2186,6 +2226,7 @@ placeItemRemote.OnServerEvent:Connect(function(player, itemName, position, scale
     newItem.Parent = workspace:FindFirstChild("PlayerItems_" .. player.UserId)
     
     newItem:SetAttribute("Owner", player.UserId)
+    newItem:SetAttribute("PlotId", plotId)
     newItem:SetAttribute("ItemName", itemName)
     newItem:SetAttribute("CellsX", cellsX) -- Store how many cells in X direction
     newItem:SetAttribute("CellsZ", cellsZ) -- Store how many cells in Z direction
@@ -2235,7 +2276,7 @@ deleteItemRemote.OnServerEvent:Connect(function(player, item)
         return
     end
     
-    if item:GetAttribute("Owner") ~= player.UserId then
+    if not isInstanceOwnedByPlayerPlot(player, item) or not isTrackedPlacedItem(player, item) then
         warn(player.Name .. " tried to delete an item they don't own")
         return
     end
@@ -2303,7 +2344,7 @@ rotateItemRemote.OnServerEvent:Connect(function(player, itemOrPosition)
     if not item or not item.Parent then return end
     if item:GetAttribute("IsPlot") then return end
 
-    if item:GetAttribute("Owner") ~= player.UserId then
+    if not isInstanceOwnedByPlayerPlot(player, item) or not isTrackedPlacedItem(player, item) then
         warn(player.Name .. " tried to rotate an item they don't own")
         return
     end
