@@ -76,6 +76,23 @@ local currentGridUnit = 0 -- Cache for current grid unit size
 local currentScaleFactor = 1 -- Cache for current scale factor
 local lastPlotSize = nil -- Track plot size changes
 local playerPlotInfo = nil -- Cached plot info for this player
+local flowPreviewFolder = nil
+local lastFlowPreviewKey = nil
+
+local FLOW_PREVIEW_MAX_STEPS = 20
+local FLOW_PREVIEW_Y_OFFSET = 0.55
+local FLOW_PREVIEW_ITEMS = {
+    Conveyor = true,
+    CurvedConveyor = true,
+    Splitter = true,
+    Merger = true,
+}
+local FLOW_PREVIEW_COLORS = {
+    valid = Color3.fromRGB(70, 255, 120),
+    invalid = Color3.fromRGB(255, 70, 70),
+    terminal = Color3.fromRGB(255, 220, 70),
+    junction = Color3.fromRGB(80, 220, 255),
+}
 
 -- Function to get player's assigned plot info
 local function getPlotInfo()
@@ -690,6 +707,745 @@ local function removeSelectionBox()
     end
 end
 
+local function clearFlowPreview()
+    if flowPreviewFolder then
+        flowPreviewFolder:Destroy()
+        flowPreviewFolder = nil
+    end
+
+    lastFlowPreviewKey = nil
+end
+
+local function getFlowPreviewFolder()
+    if flowPreviewFolder and flowPreviewFolder.Parent then
+        return flowPreviewFolder
+    end
+
+    local previewParent = workspace.CurrentCamera or workspace
+    local existingPreview = previewParent:FindFirstChild("FlowPreview_" .. player.UserId)
+    if existingPreview then
+        existingPreview:Destroy()
+    end
+
+    flowPreviewFolder = Instance.new("Folder")
+    flowPreviewFolder.Name = "FlowPreview_" .. player.UserId
+    flowPreviewFolder.Parent = previewParent
+
+    return flowPreviewFolder
+end
+
+local function cellKey(cellX, cellZ)
+    return tostring(cellX) .. "_" .. tostring(cellZ)
+end
+
+local function worldDirectionToGrid(direction)
+    if math.abs(direction.X) >= math.abs(direction.Z) then
+        return direction.X >= 0 and 1 or -1, 0
+    end
+
+    return 0, direction.Z >= 0 and 1 or -1
+end
+
+local function rotateDirection(dx, dz, rotationSteps)
+    rotationSteps = math.floor(tonumber(rotationSteps) or 0) % 4
+
+    for _ = 1, rotationSteps do
+        dx, dz = -dz, dx
+    end
+
+    return dx, dz
+end
+
+local function getFirstBasePartForFlow(instance)
+    if not instance then
+        return nil
+    end
+
+    if instance:IsA("BasePart") then
+        return instance
+    end
+
+    if instance:IsA("Model") and instance.PrimaryPart then
+        return instance.PrimaryPart
+    end
+
+    for _, descendant in ipairs(instance:GetDescendants()) do
+        if descendant:IsA("BasePart") then
+            return descendant
+        end
+    end
+
+    return nil
+end
+
+local function isFlowPreviewItem(itemName)
+    return FLOW_PREVIEW_ITEMS[itemName] == true
+end
+
+local function getFlowItemType(itemName)
+    local itemDef = Definitions.GetItem(itemName)
+    if itemDef then
+        if itemDef.type == "conveyor" or itemDef.type == "curved_conveyor" or itemDef.type == "splitter" or itemDef.type == "merger" then
+            return itemDef.type
+        end
+
+        if itemDef.type == "sell_zone" or itemDef.type == "sellZone" then
+            return "sell_zone"
+        end
+    end
+
+    if Definitions.GetMachine(itemName) then
+        return "machine"
+    end
+
+    if tostring(itemName):find("Conveyor", 1, true) then
+        return "conveyor"
+    end
+
+    return "occupied"
+end
+
+local function isFlowTransportType(flowType)
+    return flowType == "conveyor" or flowType == "curved_conveyor" or flowType == "splitter" or flowType == "merger"
+end
+
+local function isFlowJunctionType(flowType)
+    return flowType == "splitter" or flowType == "merger"
+end
+
+local function getPreviewConveyorDirection(instance, rotation)
+    local conveyorPart = getFirstBasePartForFlow(instance)
+    if conveyorPart then
+        return worldDirectionToGrid(conveyorPart.CFrame.LookVector)
+    end
+
+    if instance and instance:IsA("Model") then
+        return worldDirectionToGrid(instance:GetPivot().LookVector)
+    end
+
+    return rotateDirection(1, 0, rotation)
+end
+
+local function createFlowCellInfo(instance, itemName, cellX, cellZ, cellsX, cellsZ, rotation, isVirtual)
+    itemName = itemName or (instance and (instance:GetAttribute("ItemName") or instance.Name))
+    if not itemName then
+        return nil
+    end
+
+    cellX = cellX ~= nil and cellX or (instance and instance:GetAttribute("CellX"))
+    cellZ = cellZ ~= nil and cellZ or (instance and instance:GetAttribute("CellZ"))
+    if cellX == nil or cellZ == nil then
+        return nil
+    end
+
+    cellsX = cellsX or (instance and instance:GetAttribute("CellsX")) or 1
+    cellsZ = cellsZ or (instance and instance:GetAttribute("CellsZ")) or 1
+    rotation = math.floor(tonumber(rotation ~= nil and rotation or (instance and instance:GetAttribute("Rotation"))) or 0) % 4
+
+    local flowType = getFlowItemType(itemName)
+    local info = {
+        type = flowType,
+        instance = instance,
+        itemName = itemName,
+        cellX = math.floor(tonumber(cellX) or 0),
+        cellZ = math.floor(tonumber(cellZ) or 0),
+        cellsX = math.max(1, math.floor(tonumber(cellsX) or 1)),
+        cellsZ = math.max(1, math.floor(tonumber(cellsZ) or 1)),
+        rotation = rotation,
+        isVirtual = isVirtual == true,
+    }
+
+    if isFlowTransportType(flowType) then
+        local directionX, directionZ = getPreviewConveyorDirection(instance, rotation)
+        info.directionX = directionX
+        info.directionZ = directionZ
+    end
+
+    return info
+end
+
+local function addFlowInfoToLookup(lookup, info)
+    if not info then
+        return
+    end
+
+    for dx = 0, info.cellsX - 1 do
+        for dz = 0, info.cellsZ - 1 do
+            lookup[cellKey(info.cellX + dx, info.cellZ + dz)] = info
+        end
+    end
+end
+
+local function buildFlowCellLookup(virtualInfo)
+    local lookup = {}
+    local playerItemsFolder = workspace:FindFirstChild("PlayerItems_" .. player.UserId)
+
+    if playerItemsFolder then
+        for _, placedItem in ipairs(playerItemsFolder:GetChildren()) do
+            if placedItem:IsA("Model") and placedItem:GetAttribute("Owner") == player.UserId and not placedItem:GetAttribute("IsPlot") then
+                addFlowInfoToLookup(lookup, createFlowCellInfo(placedItem))
+            end
+        end
+    end
+
+    if virtualInfo then
+        addFlowInfoToLookup(lookup, virtualInfo)
+    end
+
+    return lookup
+end
+
+local CURVED_CONVEYOR_ROUTES = {
+    { inputX = -1, inputZ = 0, outputX = 0, outputZ = 1 },
+    { inputX = 0, inputZ = 1, outputX = 1, outputZ = 0 },
+    { inputX = 0, inputZ = -1, outputX = 1, outputZ = 0 },
+    { inputX = -1, inputZ = 0, outputX = 0, outputZ = -1 },
+}
+
+local function routeCurvedConveyorPreview(info, previousCellX, previousCellZ)
+    if not info or previousCellX == nil or previousCellZ == nil then
+        return nil, nil
+    end
+
+    local route = CURVED_CONVEYOR_ROUTES[(info.rotation % 4) + 1]
+    if not route then
+        return nil, nil
+    end
+
+    if previousCellX == info.cellX + route.inputX and previousCellZ == info.cellZ + route.inputZ then
+        return info.cellX + route.outputX, info.cellZ + route.outputZ
+    elseif previousCellX == info.cellX + route.outputX and previousCellZ == info.cellZ + route.outputZ then
+        return info.cellX + route.inputX, info.cellZ + route.inputZ
+    end
+
+    return nil, nil
+end
+
+local function getSplitterInputLane(info, previousCellX, previousCellZ)
+    if not info or previousCellX == nil or previousCellZ == nil then
+        return nil
+    end
+
+    if info.rotation == 1 then
+        return previousCellX == info.cellX - 1 and previousCellZ == info.cellZ and 1 or nil
+    elseif info.rotation == 2 then
+        return previousCellZ == info.cellZ - 1 and previousCellX == info.cellX + info.cellsX - 1 and 1 or nil
+    elseif info.rotation == 3 then
+        return previousCellX == info.cellX + info.cellsX and previousCellZ == info.cellZ + info.cellsZ - 1 and 1 or nil
+    end
+
+    return previousCellZ == info.cellZ + info.cellsZ and previousCellX == info.cellX and 1 or nil
+end
+
+local function getSplitterOutputCell(info, previousCellX, previousCellZ, outputLane)
+    if not getSplitterInputLane(info, previousCellX, previousCellZ) then
+        return nil, nil
+    end
+
+    local useSecondOutput = outputLane == 2
+    if info.rotation == 1 then
+        return info.cellX + info.cellsX, info.cellZ + (useSecondOutput and 1 or 0)
+    elseif info.rotation == 2 then
+        return info.cellX + (useSecondOutput and 0 or 1), info.cellZ + info.cellsZ
+    elseif info.rotation == 3 then
+        return info.cellX - 1, info.cellZ + (useSecondOutput and 0 or 1)
+    end
+
+    return info.cellX + (useSecondOutput and 1 or 0), info.cellZ - 1
+end
+
+local function getSplitterInputCellForPreview(info)
+    if info.rotation == 1 then
+        return info.cellX - 1, info.cellZ
+    elseif info.rotation == 2 then
+        return info.cellX + info.cellsX - 1, info.cellZ - 1
+    elseif info.rotation == 3 then
+        return info.cellX + info.cellsX, info.cellZ + info.cellsZ - 1
+    end
+
+    return info.cellX, info.cellZ + info.cellsZ
+end
+
+local function getMergerInputLane(info, inputCellX, inputCellZ)
+    if not info or inputCellX == nil or inputCellZ == nil then
+        return nil
+    end
+
+    if info.rotation == 1 then
+        if inputCellX == info.cellX - 1 and inputCellZ >= info.cellZ and inputCellZ < info.cellZ + info.cellsZ then
+            return math.clamp(inputCellZ - info.cellZ + 1, 1, 2)
+        end
+    elseif info.rotation == 2 then
+        if inputCellZ == info.cellZ - 1 and inputCellX >= info.cellX and inputCellX < info.cellX + info.cellsX then
+            return math.clamp(info.cellX + info.cellsX - inputCellX, 1, 2)
+        end
+    elseif info.rotation == 3 then
+        if inputCellX == info.cellX + info.cellsX and inputCellZ >= info.cellZ and inputCellZ < info.cellZ + info.cellsZ then
+            return math.clamp(info.cellZ + info.cellsZ - inputCellZ, 1, 2)
+        end
+    elseif inputCellZ == info.cellZ + info.cellsZ and inputCellX >= info.cellX and inputCellX < info.cellX + info.cellsX then
+        return math.clamp(inputCellX - info.cellX + 1, 1, 2)
+    end
+
+    return nil
+end
+
+local function getMergerOutputCell(info, previousCellX, previousCellZ)
+    local inputLane = getMergerInputLane(info, previousCellX, previousCellZ)
+    if not inputLane then
+        return nil, nil, nil
+    end
+
+    if info.rotation == 1 then
+        return info.cellX + info.cellsX, info.cellZ, inputLane
+    elseif info.rotation == 2 then
+        return info.cellX + info.cellsX - 1, info.cellZ + info.cellsZ, inputLane
+    elseif info.rotation == 3 then
+        return info.cellX - 1, info.cellZ + info.cellsZ - 1, inputLane
+    end
+
+    return info.cellX, info.cellZ - 1, inputLane
+end
+
+local function getAdjacentFootprintCell(info, outsideCellX, outsideCellZ)
+    for dx = 0, info.cellsX - 1 do
+        for dz = 0, info.cellsZ - 1 do
+            local footprintCellX = info.cellX + dx
+            local footprintCellZ = info.cellZ + dz
+            if math.abs(footprintCellX - outsideCellX) + math.abs(footprintCellZ - outsideCellZ) == 1 then
+                return footprintCellX, footprintCellZ
+            end
+        end
+    end
+
+    return info.cellX, info.cellZ
+end
+
+local function getMergerInputCellsForPreview(info)
+    local inputCells = {}
+
+    for candidateX = info.cellX - 1, info.cellX + info.cellsX do
+        for candidateZ = info.cellZ - 1, info.cellZ + info.cellsZ do
+            local lane = getMergerInputLane(info, candidateX, candidateZ)
+            if lane then
+                inputCells[lane] = {
+                    cellX = candidateX,
+                    cellZ = candidateZ,
+                }
+            end
+        end
+    end
+
+    return inputCells
+end
+
+local function canTransportReceiveFrom(info, previousCellX, previousCellZ)
+    if not info or not isFlowTransportType(info.type) then
+        return false
+    end
+
+    if info.type == "curved_conveyor" then
+        local nextCellX, nextCellZ = routeCurvedConveyorPreview(info, previousCellX, previousCellZ)
+        return nextCellX ~= nil and nextCellZ ~= nil
+    elseif info.type == "splitter" then
+        local nextCellX, nextCellZ = getSplitterOutputCell(info, previousCellX, previousCellZ, 1)
+        return nextCellX ~= nil and nextCellZ ~= nil
+    elseif info.type == "merger" then
+        local nextCellX, nextCellZ = getMergerOutputCell(info, previousCellX, previousCellZ)
+        return nextCellX ~= nil and nextCellZ ~= nil
+    end
+
+    return true
+end
+
+local function getFlowStartStates(info)
+    if not info then
+        return {}
+    end
+
+    if info.type == "curved_conveyor" then
+        local route = CURVED_CONVEYOR_ROUTES[(info.rotation % 4) + 1]
+        if route then
+            return {{
+                cellX = info.cellX,
+                cellZ = info.cellZ,
+                previousCellX = info.cellX + route.inputX,
+                previousCellZ = info.cellZ + route.inputZ,
+            }}
+        end
+    elseif info.type == "splitter" then
+        local previousCellX, previousCellZ = getSplitterInputCellForPreview(info)
+        return {{
+            cellX = info.cellX,
+            cellZ = info.cellZ,
+            previousCellX = previousCellX,
+            previousCellZ = previousCellZ,
+        }}
+    elseif info.type == "merger" then
+        local inputCells = getMergerInputCellsForPreview(info)
+        local inputCell = inputCells[1] or inputCells[2]
+        if inputCell then
+            return {{
+                cellX = info.cellX,
+                cellZ = info.cellZ,
+                previousCellX = inputCell.cellX,
+                previousCellZ = inputCell.cellZ,
+            }}
+        end
+
+        return {}
+    end
+
+    local directionX = info.directionX or 1
+    local directionZ = info.directionZ or 0
+    return {{
+        cellX = info.cellX,
+        cellZ = info.cellZ,
+        previousCellX = info.cellX - directionX,
+        previousCellZ = info.cellZ - directionZ,
+    }}
+end
+
+local function getNextFlowTargets(info, state)
+    if info.type == "curved_conveyor" then
+        local nextCellX, nextCellZ = routeCurvedConveyorPreview(info, state.previousCellX, state.previousCellZ)
+        if nextCellX == nil or nextCellZ == nil then
+            return {}
+        end
+
+        return {{
+            cellX = nextCellX,
+            cellZ = nextCellZ,
+            fromCellX = state.cellX,
+            fromCellZ = state.cellZ,
+        }}
+    elseif info.type == "splitter" then
+        local targets = {}
+        for outputLane = 1, 2 do
+            local nextCellX, nextCellZ = getSplitterOutputCell(info, state.previousCellX, state.previousCellZ, outputLane)
+            if nextCellX ~= nil and nextCellZ ~= nil then
+                local fromCellX, fromCellZ = getAdjacentFootprintCell(info, nextCellX, nextCellZ)
+                table.insert(targets, {
+                    cellX = nextCellX,
+                    cellZ = nextCellZ,
+                    fromCellX = fromCellX,
+                    fromCellZ = fromCellZ,
+                    isJunctionRoute = true,
+                })
+            end
+        end
+
+        return targets
+    elseif info.type == "merger" then
+        local nextCellX, nextCellZ = getMergerOutputCell(info, state.previousCellX, state.previousCellZ)
+        if nextCellX == nil or nextCellZ == nil then
+            return {}
+        end
+
+        local fromCellX, fromCellZ = getAdjacentFootprintCell(info, nextCellX, nextCellZ)
+        return {{
+            cellX = nextCellX,
+            cellZ = nextCellZ,
+            fromCellX = fromCellX,
+            fromCellZ = fromCellZ,
+            isJunctionRoute = true,
+        }}
+    end
+
+    local directionX = info.directionX or 1
+    local directionZ = info.directionZ or 0
+    return {{
+        cellX = state.cellX + directionX,
+        cellZ = state.cellZ + directionZ,
+        fromCellX = state.cellX,
+        fromCellZ = state.cellZ,
+    }}
+end
+
+local function getPreviewCellWorldPosition(cellX, cellZ, plotInfo, gridUnit)
+    return Vector3.new(
+        plotInfo.position.X + cellX * gridUnit + gridUnit / 2,
+        plotInfo.position.Y + plotInfo.size.Y / 2 + FLOW_PREVIEW_Y_OFFSET,
+        plotInfo.position.Z + cellZ * gridUnit + gridUnit / 2
+    )
+end
+
+local function createFlowPreviewPart(name, size, cframe, color)
+    local part = Instance.new("Part")
+    part.Name = name
+    part.Size = size
+    part.CFrame = cframe
+    part.Anchored = true
+    part.CanCollide = false
+    part.CanQuery = false
+    part.CanTouch = false
+    part.CastShadow = false
+    part.Material = Enum.Material.Neon
+    part.Color = color
+    part.Transparency = 0.08
+    part.Parent = getFlowPreviewFolder()
+
+    return part
+end
+
+local function drawFlowArrow(fromCellX, fromCellZ, toCellX, toCellZ, color, plotInfo, gridUnit)
+    local fromPosition = getPreviewCellWorldPosition(fromCellX, fromCellZ, plotInfo, gridUnit)
+    local toPosition = getPreviewCellWorldPosition(toCellX, toCellZ, plotInfo, gridUnit)
+    local delta = Vector3.new(toPosition.X - fromPosition.X, 0, toPosition.Z - fromPosition.Z)
+    local distance = delta.Magnitude
+    if distance < 0.001 then
+        return
+    end
+
+    local direction = delta.Unit
+    local yaw = math.atan2(direction.X, direction.Z)
+    local thickness = 0.08
+    local shaftWidth = math.clamp(gridUnit * 0.11, 0.35, 0.8)
+    local shaftLength = math.max(gridUnit * 0.24, distance * 0.46)
+    local headLength = math.max(gridUnit * 0.18, distance * 0.2)
+    local shaftCenter = fromPosition + direction * (distance * 0.42)
+    local headCenter = fromPosition + direction * (distance * 0.7)
+
+    createFlowPreviewPart(
+        "FlowPreviewArrowShaft",
+        Vector3.new(shaftWidth, thickness, shaftLength),
+        CFrame.new(shaftCenter) * CFrame.Angles(0, yaw, 0),
+        color
+    )
+
+    createFlowPreviewPart(
+        "FlowPreviewArrowHeadLeft",
+        Vector3.new(shaftWidth, thickness, headLength),
+        CFrame.new(headCenter) * CFrame.Angles(0, yaw + math.rad(135), 0),
+        color
+    )
+
+    createFlowPreviewPart(
+        "FlowPreviewArrowHeadRight",
+        Vector3.new(shaftWidth, thickness, headLength),
+        CFrame.new(headCenter) * CFrame.Angles(0, yaw - math.rad(135), 0),
+        color
+    )
+end
+
+local function drawFlowStopMarker(cellX, cellZ, color, plotInfo, gridUnit)
+    local center = getPreviewCellWorldPosition(cellX, cellZ, plotInfo, gridUnit)
+    local markerSize = math.clamp(gridUnit * 0.32, 1.5, 2.7)
+    local barWidth = math.clamp(gridUnit * 0.08, 0.3, 0.55)
+
+    createFlowPreviewPart(
+        "FlowPreviewStopA",
+        Vector3.new(barWidth, 0.09, markerSize),
+        CFrame.new(center) * CFrame.Angles(0, math.rad(45), 0),
+        color
+    )
+    createFlowPreviewPart(
+        "FlowPreviewStopB",
+        Vector3.new(barWidth, 0.09, markerSize),
+        CFrame.new(center) * CFrame.Angles(0, math.rad(-45), 0),
+        color
+    )
+end
+
+local function classifyFlowTarget(target, nextInfo, visitedCells, plotInfo, gridUnit)
+    if not areCellsValid(target.cellX, target.cellZ, 1, 1, plotInfo, gridUnit) then
+        return FLOW_PREVIEW_COLORS.invalid, false
+    end
+
+    if not nextInfo then
+        return FLOW_PREVIEW_COLORS.invalid, false
+    end
+
+    if nextInfo.type == "machine" or nextInfo.type == "sell_zone" then
+        return FLOW_PREVIEW_COLORS.terminal, false
+    end
+
+    if not isFlowTransportType(nextInfo.type) then
+        return FLOW_PREVIEW_COLORS.invalid, false
+    end
+
+    if not canTransportReceiveFrom(nextInfo, target.fromCellX, target.fromCellZ) then
+        return FLOW_PREVIEW_COLORS.invalid, false
+    end
+
+    if visitedCells[cellKey(target.cellX, target.cellZ)] then
+        return FLOW_PREVIEW_COLORS.invalid, false
+    end
+
+    if target.isJunctionRoute or isFlowJunctionType(nextInfo.type) then
+        return FLOW_PREVIEW_COLORS.junction, true
+    end
+
+    return FLOW_PREVIEW_COLORS.valid, true
+end
+
+local function copyVisitedCells(visitedCells)
+    local copy = {}
+    for key, value in pairs(visitedCells) do
+        copy[key] = value
+    end
+
+    return copy
+end
+
+local function markFlowFootprintVisited(visitedCells, info)
+    for dx = 0, info.cellsX - 1 do
+        for dz = 0, info.cellsZ - 1 do
+            visitedCells[cellKey(info.cellX + dx, info.cellZ + dz)] = true
+        end
+    end
+end
+
+local function renderFlowPreview(startInfo, plotInfo, gridUnit)
+    if not startInfo or not isFlowTransportType(startInfo.type) then
+        return
+    end
+
+    local lookup = buildFlowCellLookup(startInfo.isVirtual and startInfo or nil)
+    local queue = {}
+    for _, startState in ipairs(getFlowStartStates(startInfo)) do
+        startState.visitedCells = {}
+        markFlowFootprintVisited(startState.visitedCells, startInfo)
+        startState.depth = 0
+        table.insert(queue, startState)
+    end
+
+    local drawnSteps = 0
+    if startInfo.type == "merger" then
+        for _, inputCell in pairs(getMergerInputCellsForPreview(startInfo)) do
+            if drawnSteps >= FLOW_PREVIEW_MAX_STEPS then
+                break
+            end
+
+            local toCellX, toCellZ = getAdjacentFootprintCell(startInfo, inputCell.cellX, inputCell.cellZ)
+            local color = areCellsValid(inputCell.cellX, inputCell.cellZ, 1, 1, plotInfo, gridUnit) and FLOW_PREVIEW_COLORS.junction or FLOW_PREVIEW_COLORS.invalid
+            drawFlowArrow(inputCell.cellX, inputCell.cellZ, toCellX, toCellZ, color, plotInfo, gridUnit)
+            drawnSteps += 1
+        end
+    end
+
+    while #queue > 0 and drawnSteps < FLOW_PREVIEW_MAX_STEPS do
+        local state = table.remove(queue, 1)
+        local currentInfo = lookup[cellKey(state.cellX, state.cellZ)]
+
+        if not currentInfo or not isFlowTransportType(currentInfo.type) then
+            break
+        end
+
+        local targets = getNextFlowTargets(currentInfo, state)
+        if #targets == 0 then
+            if state.previousCellX ~= nil and state.previousCellZ ~= nil then
+                drawFlowArrow(state.previousCellX, state.previousCellZ, state.cellX, state.cellZ, FLOW_PREVIEW_COLORS.invalid, plotInfo, gridUnit)
+                drawnSteps += 1
+            else
+                drawFlowStopMarker(state.cellX, state.cellZ, FLOW_PREVIEW_COLORS.invalid, plotInfo, gridUnit)
+            end
+        end
+
+        for _, target in ipairs(targets) do
+            if drawnSteps >= FLOW_PREVIEW_MAX_STEPS then
+                break
+            end
+
+            local nextInfo = lookup[cellKey(target.cellX, target.cellZ)]
+            local color, shouldContinue = classifyFlowTarget(target, nextInfo, state.visitedCells, plotInfo, gridUnit)
+            drawFlowArrow(target.fromCellX, target.fromCellZ, target.cellX, target.cellZ, color, plotInfo, gridUnit)
+            drawnSteps += 1
+
+            if shouldContinue and state.depth < FLOW_PREVIEW_MAX_STEPS then
+                local nextVisitedCells = copyVisitedCells(state.visitedCells)
+                markFlowFootprintVisited(nextVisitedCells, nextInfo)
+                table.insert(queue, {
+                    cellX = target.cellX,
+                    cellZ = target.cellZ,
+                    previousCellX = target.fromCellX,
+                    previousCellZ = target.fromCellZ,
+                    visitedCells = nextVisitedCells,
+                    depth = state.depth + 1,
+                })
+            end
+        end
+    end
+end
+
+local function updateFlowPreview(flowPreviewKey, startInfo)
+    if not startInfo or not isFlowPreviewItem(startInfo.itemName) then
+        clearFlowPreview()
+        return
+    end
+
+    local plotInfo = getPlotInfo()
+    if not plotInfo then
+        clearFlowPreview()
+        return
+    end
+
+    local gridUnit = currentGridUnit
+    if gridUnit == 0 then
+        gridUnit = getGridUnitSize()
+    end
+
+    if flowPreviewKey == lastFlowPreviewKey then
+        return
+    end
+
+    clearFlowPreview()
+    lastFlowPreviewKey = flowPreviewKey
+    renderFlowPreview(startInfo, plotInfo, gridUnit)
+end
+
+local function updateFlowPreviewForPlacement(itemName, instance, cellX, cellZ, cellsX, cellsZ, rotation)
+    if not isFlowPreviewItem(itemName) then
+        clearFlowPreview()
+        return
+    end
+
+    local startInfo = createFlowCellInfo(instance, itemName, cellX, cellZ, cellsX, cellsZ, rotation, true)
+    local key = table.concat({
+        "placement",
+        itemName,
+        tostring(cellX),
+        tostring(cellZ),
+        tostring(cellsX),
+        tostring(cellsZ),
+        tostring(rotation),
+    }, ":")
+
+    updateFlowPreview(key, startInfo)
+end
+
+local function updateFlowPreviewForSelectedItem(item)
+    if not item or not item.Parent then
+        clearFlowPreview()
+        return
+    end
+
+    local itemName = item:GetAttribute("ItemName")
+    if not isFlowPreviewItem(itemName) then
+        clearFlowPreview()
+        return
+    end
+
+    local startInfo = createFlowCellInfo(item)
+    if not startInfo then
+        clearFlowPreview()
+        return
+    end
+
+    local key = table.concat({
+        "selected",
+        tostring(item),
+        itemName,
+        tostring(startInfo.cellX),
+        tostring(startInfo.cellZ),
+        tostring(startInfo.cellsX),
+        tostring(startInfo.cellsZ),
+        tostring(startInfo.rotation),
+    }, ":")
+
+    updateFlowPreview(key, startInfo)
+end
+
 -- Create Inventory UI
 local existingInventoryGui = playerGui:FindFirstChild("InventoryUI")
 if existingInventoryGui then
@@ -721,6 +1477,10 @@ local function hideItemContextMenu()
         itemContextMenu.Visible = false
     end
     contextMenuTarget = nil
+
+    if not placementMode then
+        clearFlowPreview()
+    end
 end
 
 local function getContextMenuWorldPosition()
@@ -947,6 +1707,7 @@ local function showItemContextMenu(target)
     end
 
     contextMenuTarget = target
+    updateFlowPreviewForSelectedItem(target)
 
     local finalPosition = UDim2.new(0.5, 0, 0.5, 0)
     itemContextMenu.Position = UDim2.new(0.5, 0, 0.75, 0)
@@ -1272,6 +2033,7 @@ local function refreshInventoryUI()
                 placementIndicator.Visible = false
                 removeSelectionBox()
                 hoveredDeleteItem = nil
+                clearFlowPreview()
             end
             
             -- Exit previous placement mode
@@ -1282,6 +2044,7 @@ local function refreshInventoryUI()
                 placementIndicator.Visible = false
                 selectedItem = nil
                 removeGridVisualization()
+                clearFlowPreview()
             end
             
             selectedItem = item.itemName
@@ -1307,12 +2070,14 @@ deleteButton.MouseButton1Click:Connect(function()
         destroyGhostItem()
         selectedItem = nil
         removeGridVisualization()
+        clearFlowPreview()
     end
     
     -- Toggle deletion mode
     deletionMode = not deletionMode
     
     if deletionMode then
+        clearFlowPreview()
         deleteButton.BackgroundColor3 = Color3.fromRGB(200, 50, 50)
         placementIndicator.Visible = true
         placementIndicator.BackgroundColor3 = Color3.fromRGB(200, 50, 50)
@@ -1322,6 +2087,7 @@ deleteButton.MouseButton1Click:Connect(function()
         placementIndicator.Visible = false
         removeSelectionBox()
         hoveredDeleteItem = nil
+        clearFlowPreview()
     end
 end)
 
@@ -1359,6 +2125,7 @@ local function updateGhostPosition()
         if not plotInfo then
             ghostItem.Parent = nil
             placementIndicator.Visible = false
+            clearFlowPreview()
             return
         end
         
@@ -1386,6 +2153,7 @@ local function updateGhostPosition()
                 placementIndicator.BackgroundColor3 = Color3.fromRGB(200, 50, 50)
                 indicatorText.Text = "Outside plot! | Click button to cancel"
                 canPlace = false
+                clearFlowPreview()
                 return
             end
             
@@ -1399,6 +2167,7 @@ local function updateGhostPosition()
                 indicatorText.Text = "Outside plot! | Click button to cancel"
                 canPlace = false
                 updateHighlightBox(cellX, cellZ, cellsX, cellsZ, false)
+                clearFlowPreview()
                 return
             end
             
@@ -1409,6 +2178,7 @@ local function updateGhostPosition()
                 indicatorText.Text = "Space occupied! | Click button to cancel"
                 canPlace = false
                 updateHighlightBox(cellX, cellZ, cellsX, cellsZ, false)
+                clearFlowPreview()
                 return
             end
             
@@ -1434,6 +2204,8 @@ local function updateGhostPosition()
                     worldPos.Z
                 ) * getRotationCFrame(placementRotation))
             end
+
+            updateFlowPreviewForPlacement(selectedItem, ghostItem, cellX, cellZ, cellsX, cellsZ, placementRotation)
         end
     end
 end
@@ -1578,6 +2350,7 @@ local function onInputBegan(input, gameProcessed)
                 destroyGhostItem()
                 selectedItem = nil
                 removeGridVisualization()
+                clearFlowPreview()
                 
                 task.wait(0.1)
                 refreshInventoryUI()

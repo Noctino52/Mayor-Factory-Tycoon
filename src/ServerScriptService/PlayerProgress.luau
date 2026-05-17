@@ -397,6 +397,70 @@ function PlayerProgress.RecordSale(player, itemName, npcName, quantity)
 	return stats
 end
 
+function PlayerProgress.GetTownPrestigeStageInfo(stage)
+	stage = tonumber(stage) or 1
+
+	local bestStageInfo = nil
+	for _, stageInfo in pairs(Definitions.TOWN_PRESTIGE_STAGES) do
+		local stageNumber = tonumber(stageInfo.stage) or 0
+
+		if stageNumber == stage then
+			return stageInfo
+		end
+
+		local bestStageNumber = bestStageInfo and tonumber(bestStageInfo.stage) or 0
+		if stageNumber <= stage and (not bestStageInfo or stageNumber > bestStageNumber) then
+			bestStageInfo = stageInfo
+		end
+	end
+
+	return bestStageInfo
+end
+
+function PlayerProgress.GetCurrentTownPrestigeStageInfo(player)
+	local progress = PlayerProgress.GetPlayerProgress(player)
+	local townPrestige = progress.townPrestige or {}
+
+	return PlayerProgress.GetTownPrestigeStageInfo(townPrestige.stage)
+end
+
+function PlayerProgress.GetTownPrestigeRewards(player)
+	local stageInfo = PlayerProgress.GetCurrentTownPrestigeStageInfo(player)
+
+	return stageInfo and stageInfo.rewards or {}
+end
+
+function PlayerProgress.GetUnlockedShopItems(player)
+	local progress = PlayerProgress.GetPlayerProgress(player)
+	local currentStage = tonumber(progress.townPrestige and progress.townPrestige.stage) or 1
+	local unlockedItems = {}
+
+	for itemName, itemDef in pairs(Definitions.GetAllItems()) do
+		if itemDef.cost and itemDef.isProduction ~= true and itemDef.type ~= "sell_zone" then
+			unlockedItems[itemName] = true
+		end
+	end
+
+	for _, stageInfo in pairs(Definitions.TOWN_PRESTIGE_STAGES) do
+		local rewards = stageInfo.rewards or {}
+		for _, itemName in ipairs(rewards.newShopItems or {}) do
+			if (tonumber(stageInfo.stage) or 0) <= currentStage then
+				unlockedItems[itemName] = true
+			else
+				unlockedItems[itemName] = nil
+			end
+		end
+	end
+
+	return unlockedItems
+end
+
+function PlayerProgress.IsShopItemUnlocked(player, itemName)
+	local unlockedItems = PlayerProgress.GetUnlockedShopItems(player)
+
+	return unlockedItems[itemName] == true
+end
+
 --[[
 	CheckTownPrestigeUpgrade(player: Player) -> (boolean, number or nil)
 	
@@ -415,7 +479,7 @@ function PlayerProgress.CheckTownPrestigeUpgrade(player)
 
 	-- Find next stage
 	local nextStageInfo = nil
-	for i, stageInfo in ipairs(allStages) do
+	for _, stageInfo in pairs(allStages) do
 		if stageInfo.stage == currentStage + 1 then
 			nextStageInfo = stageInfo
 			break

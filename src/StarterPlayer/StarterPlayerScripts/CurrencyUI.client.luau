@@ -19,13 +19,15 @@ local playerGui = player:WaitForChild("PlayerGui")
 local getMoneyRemote = ReplicatedStorage:WaitForChild("GetMoney")
 local getReputationRemote = ReplicatedStorage:WaitForChild("GetReputation")
 local getTownPrestigeRemote = ReplicatedStorage:WaitForChild("GetTownPrestige")
+local getPowerStatusRemote = ReplicatedStorage:WaitForChild("GetPowerStatus")
+local placementResultRemote = ReplicatedStorage:WaitForChild("PlacementResult", 5)
 local saleFeedbackRemote = ReplicatedStorage:WaitForChild("ProductionItemSold", 5)
 
 -- Configuration
 local UPDATE_INTERVAL = 0.5 -- seconds
 local ANIMATION_DURATION = 0.3 -- seconds for money change animation
 local HUD_WIDTH = 300
-local HUD_HEIGHT = 218
+local HUD_HEIGHT = 256
 
 -- State tracking
 local currentMoney = 0
@@ -170,6 +172,29 @@ local function createHUD()
 	prestigeLabel.TextXAlignment = Enum.TextXAlignment.Left
 	prestigeLabel.Parent = prestigeFrame
 
+	-- ===== POWER DISPLAY =====
+	local powerFrame = Instance.new("Frame")
+	powerFrame.Name = "PowerFrame"
+	powerFrame.Size = UDim2.new(1, 0, 0, 30)
+	powerFrame.BackgroundColor3 = Color3.fromRGB(40, 40, 50)
+	powerFrame.BorderSizePixel = 0
+	powerFrame.Parent = mainFrame
+
+	local powerCorner = Instance.new("UICorner")
+	powerCorner.CornerRadius = UDim.new(0, 5)
+	powerCorner.Parent = powerFrame
+
+	local powerLabel = Instance.new("TextLabel")
+	powerLabel.Name = "PowerLabel"
+	powerLabel.Size = UDim2.fromScale(1, 1)
+	powerLabel.BackgroundTransparency = 1
+	powerLabel.Text = "⚡ Power: 0 / 0"
+	powerLabel.TextColor3 = Color3.fromRGB(120, 255, 140)
+	powerLabel.Font = Enum.Font.GothamBold
+	powerLabel.TextSize = 12
+	powerLabel.TextXAlignment = Enum.TextXAlignment.Left
+	powerLabel.Parent = powerFrame
+
 	-- ===== PLOT USAGE DISPLAY =====
 	local plotUsageFrame = Instance.new("Frame")
 	plotUsageFrame.Name = "PlotUsageFrame"
@@ -197,6 +222,7 @@ local function createHUD()
 		money = moneyLabel,
 		reputation = reputationFrame,
 		prestige = prestigeLabel,
+		power = powerLabel,
 		plotUsage = plotUsageLabel,
 	}
 end
@@ -218,6 +244,16 @@ local function animateMoneyChange(moneyLabel, oldMoney, newMoney)
 	-- Reset color after animation
 	task.wait(ANIMATION_DURATION)
 	moneyLabel.TextColor3 = Color3.fromRGB(200, 255, 100)
+end
+
+local function getPowerTextColor(available)
+	if available > 10 then
+		return Color3.fromRGB(120, 255, 140)
+	elseif available > 0 then
+		return Color3.fromRGB(255, 220, 90)
+	end
+
+	return Color3.fromRGB(255, 100, 100)
 end
 
 local function showSalePopup(gui, result)
@@ -250,6 +286,49 @@ local function showSalePopup(gui, result)
 
     local tween = TweenService:Create(popup, TweenInfo.new(1.25, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
         Position = UDim2.new(0.5, -130, 0, 53),
+        BackgroundTransparency = 1,
+        TextTransparency = 1,
+    })
+
+    tween.Completed:Connect(function()
+        if popup and popup.Parent then
+            popup:Destroy()
+        end
+    end)
+
+    tween:Play()
+end
+
+local function showPlacementPopup(gui, result)
+    if not gui or not gui.Parent or type(result) ~= "table" or result.success ~= false then
+        return
+    end
+
+    local popup = Instance.new("TextLabel")
+    popup.Name = "PlacementPopup"
+    popup.Size = UDim2.fromOffset(260, 34)
+    popup.Position = UDim2.new(0.5, -130, 0, 140)
+    popup.BackgroundColor3 = Color3.fromRGB(155, 48, 48)
+    popup.BackgroundTransparency = 0.08
+    popup.BorderSizePixel = 0
+    popup.TextColor3 = Color3.fromRGB(255, 242, 242)
+    popup.TextScaled = true
+    popup.Font = Enum.Font.GothamBold
+    popup.Text = tostring(result.message or "Placement failed")
+    popup.Parent = gui
+
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, 8)
+    corner.Parent = popup
+
+    local stroke = Instance.new("UIStroke")
+    stroke.Color = Color3.fromRGB(255, 170, 170)
+    stroke.Thickness = 1
+    stroke.Transparency = 0.25
+    stroke.Parent = popup
+
+    local tween = TweenService:Create(popup, TweenInfo.new(1.35, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+        Position = UDim2.new(0.5, -130, 0, 96),
         BackgroundTransparency = 1,
         TextTransparency = 1,
     })
@@ -307,6 +386,18 @@ local function updateHUD(labels)
 	end
 end
 
+local function updatePowerHUD(labels)
+	local powerStatus = getPowerStatusRemote:InvokeServer()
+	if powerStatus and labels.power then
+		local used = tonumber(powerStatus.used) or 0
+		local capacity = tonumber(powerStatus.capacity) or 0
+		local available = tonumber(powerStatus.available) or 0
+
+		labels.power.Text = "⚡ Power: " .. tostring(used) .. " / " .. tostring(capacity)
+		labels.power.TextColor3 = getPowerTextColor(available)
+	end
+end
+
 -- Main update loop
 local function mainLoop()
 	local gui, labels = createHUD()
@@ -317,12 +408,19 @@ local function mainLoop()
 		end)
 	end
 
+	if placementResultRemote then
+		placementResultRemote.OnClientEvent:Connect(function(result)
+			showPlacementPopup(gui, result)
+		end)
+	end
+
 	while true do
 		task.wait(UPDATE_INTERVAL)
 
 		-- Wrap in pcall to handle errors gracefully
 		local success, err = pcall(function()
 			updateHUD(labels)
+			updatePowerHUD(labels)
 		end)
 
 		if not success then

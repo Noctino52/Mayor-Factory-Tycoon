@@ -92,6 +92,19 @@ local function getNextProcessingItem(machine)
     return nextItem
 end
 
+local function isInstancePowered(instance, machineData)
+    local powerRequired = machineData and tonumber(machineData.powerRequired) or 0
+    if powerRequired <= 0 then
+        return true
+    end
+
+    if not instance or not instance.Parent then
+        return false
+    end
+
+    return instance:GetAttribute("IsPowered") == true
+end
+
 local function getMachineForInstance(player, instance)
     if not instance then
         return nil
@@ -296,10 +309,6 @@ local function updateProcessor(player, machine, machineData, now)
 end
 
 local function updateMachineProduction(player, machine, now)
-    if not machine.isPowered then
-        return
-    end
-
     if machine.instance and not machine.instance.Parent then
         MachineSystem.UnregisterMachine(player, machine.cellX, machine.cellZ)
         return
@@ -307,6 +316,21 @@ local function updateMachineProduction(player, machine, now)
 
     local machineData = Definitions.GetMachine(machine.name)
     if not machineData then
+        return
+    end
+
+    machine.isPowered = isInstancePowered(machine.instance, machineData)
+    if not machine.isPowered then
+        machine.lastProducedTime = now
+        machine.productionProgress = 0
+
+        if machine.type == "processor" then
+            for _, inputItem in ipairs(machine.inputQueue) do
+                inputItem.receivedAt = now
+            end
+            updateProcessingVisual(machine)
+        end
+
         return
     end
 
@@ -354,8 +378,15 @@ function MachineSystem.RegisterMachine(player, cellX, cellZ, machineName, instan
         inputQueueSize = machineData.inputQueueSize or 0,
         lastProducedTime = tick(),
         productionProgress = 0,
-        isPowered = true,
+        isPowered = isInstancePowered(instance, machineData),
     }
+
+    if instance then
+        instance:SetAttribute("PowerRequired", tonumber(machineData.powerRequired) or 0)
+        if instance:GetAttribute("IsPowered") == nil then
+            instance:SetAttribute("IsPowered", machine.isPowered)
+        end
+    end
 
     activeMachines[player][machineKey(cellX, cellZ)] = machine
     updateProcessingVisual(machine)
@@ -429,6 +460,11 @@ function MachineSystem.FeedMachine(player, machineInstance, itemName)
     local machineData = Definitions.GetMachine(machine.name)
     if not machineData or machineData.type ~= "processor" then
         return false, "Machine does not accept input"
+    end
+
+    machine.isPowered = isInstancePowered(machine.instance, machineData)
+    if not machine.isPowered then
+        return false, "Machine is not powered"
     end
 
     if machineData.inputItem ~= itemName then

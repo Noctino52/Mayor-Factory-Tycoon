@@ -12,6 +12,7 @@ local PlayerProgress = require(game.ServerScriptService.PlayerProgress)
 local Definitions = require(game.ReplicatedStorage.Shared.Definitions)
 local ConveyorSystem = require(game.ServerScriptService.ConveyorSystem)
 local MachineSystem = require(game.ServerScriptService.MachineSystem)
+local PowerSystem = require(game.ServerScriptService.PowerSystem)
 local SellSystem = require(game.ServerScriptService.SellSystem)
 
 -- Configuration
@@ -382,6 +383,10 @@ local getTownPrestigeRemote = Instance.new("RemoteFunction")
 getTownPrestigeRemote.Name = "GetTownPrestige"
 getTownPrestigeRemote.Parent = ReplicatedStorage
 
+local getPowerStatusRemote = Instance.new("RemoteFunction")
+getPowerStatusRemote.Name = "GetPowerStatus"
+getPowerStatusRemote.Parent = ReplicatedStorage
+
 -- Create RemoteEvent for buying items from shop
 local buyItemRemote = Instance.new("RemoteEvent")
 buyItemRemote.Name = "BuyItem"
@@ -400,6 +405,10 @@ inventoryUpdatedRemote.Parent = ReplicatedStorage
 local shopTransactionResultRemote = Instance.new("RemoteEvent")
 shopTransactionResultRemote.Name = "ShopTransactionResult"
 shopTransactionResultRemote.Parent = ReplicatedStorage
+
+local placementResultRemote = Instance.new("RemoteEvent")
+placementResultRemote.Name = "PlacementResult"
+placementResultRemote.Parent = ReplicatedStorage
 
 -- Configuration Constants
 local MAX_ITEMS_PER_PLOT = 100
@@ -691,6 +700,67 @@ local function createSawmillTemplate()
     return sawmill
 end
 
+local function createGeneratorTemplate(itemName)
+    local existing = templatesFolder:FindFirstChild(itemName)
+    if existing then
+        return existing
+    end
+
+    local itemDef = Definitions.GetItem(itemName)
+    if not itemDef or itemDef.type ~= "generator" then
+        return nil
+    end
+
+    local generator = Instance.new("Model")
+    generator.Name = itemName
+
+    local base = Instance.new("Part")
+    base.Name = "Base"
+    base.Size = Vector3.new(7.4, 0.45, 7.4)
+    base.CFrame = CFrame.new(0, 0.225, 0)
+    base.Anchored = true
+    base.CanCollide = true
+    base.Material = Enum.Material.Metal
+    base.Color = Color3.fromRGB(44, 50, 54)
+    base.Parent = generator
+
+    local casing = Instance.new("Part")
+    casing.Name = "Casing"
+    casing.Size = Vector3.new(4.6, 2.1, 3.2)
+    casing.CFrame = CFrame.new(0, 1.5, 0)
+    casing.Anchored = true
+    casing.CanCollide = true
+    casing.Material = Enum.Material.Metal
+    casing.Color = Color3.fromRGB(82, 96, 92)
+    casing.Parent = generator
+
+    local coil = Instance.new("Part")
+    coil.Name = "PowerCore"
+    coil.Shape = Enum.PartType.Cylinder
+    coil.Size = Vector3.new(0.8, 2.5, 2.5)
+    coil.CFrame = CFrame.new(0, 1.55, 0) * CFrame.Angles(0, 0, math.rad(90))
+    coil.Anchored = true
+    coil.CanCollide = false
+    coil.Material = Enum.Material.Neon
+    coil.Color = Color3.fromRGB(255, 206, 86)
+    coil.Parent = generator
+
+    local terminal = Instance.new("Part")
+    terminal.Name = "Terminal"
+    terminal.Size = Vector3.new(1.2, 0.35, 2.6)
+    terminal.CFrame = CFrame.new(2.1, 2.75, 0)
+    terminal.Anchored = true
+    terminal.CanCollide = false
+    terminal.Material = Enum.Material.Neon
+    terminal.Color = Color3.fromRGB(116, 218, 255)
+    terminal.Parent = generator
+
+    generator.PrimaryPart = base
+    generator.Parent = templatesFolder
+
+    return generator
+end
+
 local SELL_ZONE_COLORS = {
     Mira = Color3.fromRGB(58, 150, 84),
     Bront = Color3.fromRGB(139, 96, 54),
@@ -791,6 +861,10 @@ local function ensureItemTemplate(itemName)
     end
 
     local itemDef = Definitions.GetItem(itemName)
+    if itemDef and itemDef.type == "generator" then
+        return createGeneratorTemplate(itemName)
+    end
+
     if itemDef and itemDef.type == "sell_zone" then
         return createSellZoneTemplate(itemName)
     end
@@ -821,6 +895,14 @@ local function sendShopResult(player, success, action, itemName, message, balanc
         itemName = itemName,
         message = message,
         money = balance,
+    })
+end
+
+local function sendPlacementResult(player, success, itemName, message)
+    placementResultRemote:FireClient(player, {
+        success = success,
+        itemName = itemName,
+        message = message,
     })
 end
 
@@ -970,6 +1052,7 @@ local function reconcileSellZoneOwnership(player)
             if npcName then
                 if placedByNpc[npcName] then
                     SellSystem.UnregisterPlacedItem(player, placedItem)
+                    PowerSystem.UnregisterPlacedItem(player, placedItem)
                     placedItem:Destroy()
                     table.remove(data.placedItems, index)
                 else
@@ -1373,6 +1456,7 @@ local function spawnSavedItems(player, itemsData, plotId)
             if playerItemsFolder then
                 newItem.Parent = playerItemsFolder
                 table.insert(data.placedItems, newItem)
+                PowerSystem.RegisterPlacedItem(player, newItem)
                 MachineSystem.RegisterPlacedItem(player, newItem)
                 SellSystem.RegisterPlacedItem(player, newItem)
             end
@@ -1467,6 +1551,7 @@ local function onPlayerRemoving(player)
     savePlayerData(player)
 
     MachineSystem.ClearPlayer(player)
+    PowerSystem.ClearPlayer(player)
     SellSystem.ClearPlayer(player)
     
     -- Clear player progress from cache
@@ -1524,6 +1609,15 @@ placeItemRemote.OnServerEvent:Connect(function(player, itemName, position, scale
     if sellZoneNpcName and hasPlacedSellZoneForNpc(player, sellZoneNpcName) then
         reconcileSellZoneOwnership(player)
         return false, "Only one sell zone per NPC is allowed"
+    end
+
+    if Definitions.GetMachine(itemName) then
+        local canPlace, message = PowerSystem.CanPlaceMachine(player, itemName)
+        if not canPlace then
+            message = message or "Not enough Power"
+            sendPlacementResult(player, false, itemName, message)
+            return false, message
+        end
     end
     
     -- Get template and check size
@@ -1606,6 +1700,7 @@ placeItemRemote.OnServerEvent:Connect(function(player, itemName, position, scale
     end
     
     table.insert(data.placedItems, newItem)
+    PowerSystem.RegisterPlacedItem(player, newItem)
     MachineSystem.RegisterPlacedItem(player, newItem)
     SellSystem.RegisterPlacedItem(player, newItem)
     reconcileSellZoneOwnership(player)
@@ -1642,6 +1737,7 @@ deleteItemRemote.OnServerEvent:Connect(function(player, item)
     
     local itemName = item:GetAttribute("ItemName") or "Unknown"
     MachineSystem.UnregisterPlacedItem(player, item)
+    PowerSystem.UnregisterPlacedItem(player, item)
     SellSystem.UnregisterPlacedItem(player, item)
     
     -- Remove from placed items list
@@ -1808,14 +1904,28 @@ spawnProductionItemRemote.OnServerInvoke = function(player, itemName, cellX, cel
     return true, "Spawned"
 end
 
+getPowerStatusRemote.OnServerInvoke = function(player)
+    return PowerSystem.GetPowerStatus(player)
+end
+
 -- Handle get town prestige request
 getTownPrestigeRemote.OnServerInvoke = function(player)
     local progress = PlayerProgress.GetPlayerProgress(player)
+    local stageInfo = PlayerProgress.GetCurrentTownPrestigeStageInfo(player)
+    local powerStatus = PowerSystem.GetPowerStatus(player)
     return {
         stage = progress.townPrestige.stage,
+        stageName = stageInfo and stageInfo.name or nil,
         contributions = progress.townPrestige.contributions or 0,
         currentItemsPlaced = countPlacedMachines(player),
-        maxItemsAllowed = MAX_ITEMS_PER_PLOT
+        maxItemsAllowed = MAX_ITEMS_PER_PLOT,
+        power = powerStatus,
+        powerUsed = powerStatus.used,
+        powerCapacity = powerStatus.capacity,
+        powerAvailable = powerStatus.available,
+        basePowerCapacity = PowerSystem.GetBaseCapacity(player),
+        generatorPowerCapacity = PowerSystem.GetGeneratorCapacity(player),
+        unlockedShopItems = PlayerProgress.GetUnlockedShopItems(player),
     }
 end
 
@@ -1835,6 +1945,12 @@ buyItemRemote.OnServerEvent:Connect(function(player, itemName)
     if not itemDef.cost or itemDef.isProduction or itemDef.type == "sell_zone" then
         print(player.Name .. " tried to buy non-purchasable item: " .. itemName)
         sendShopResult(player, false, "buy", itemName, "This item cannot be bought.", nil)
+        return
+    end
+
+    if not PlayerProgress.IsShopItemUnlocked(player, itemName) then
+        print(player.Name .. " tried to buy locked item: " .. itemName)
+        sendShopResult(player, false, "buy", itemName, "This item is not unlocked yet.", nil)
         return
     end
     

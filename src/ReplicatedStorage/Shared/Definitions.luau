@@ -116,6 +116,16 @@ local ITEMS = {
 		isMachine = false,
 		isProduction = false,
 	},
+	SmallGenerator = {
+		name = "SmallGenerator",
+		icon = "⚡",
+		category = "power",
+		cost = 250,
+		type = "generator",
+		powerProvided = 20,
+		isMachine = false,
+		isProduction = false,
+	},
 	MiraSellZone = {
 		name = "MiraSellZone",
 		icon = "M",
@@ -264,8 +274,8 @@ local TOWN_PRESTIGE_STAGES = {
 	{
 		stage = 2,
 		name = "Village",
-		requirements = { totalContribution = 500, miraReputation = 50 },
-		rewards = { powerCapacity = 100, newShopItems = {} },
+		requirements = { totalContribution = 500, Mira = 50 },
+		rewards = { powerCapacity = 100, newShopItems = { "SmallGenerator" } },
 	},
 }
 
