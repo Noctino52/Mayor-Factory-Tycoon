@@ -121,6 +121,221 @@ local function isConveyorItem(itemName)
     return (itemDef and itemDef.type == "conveyor") or tostring(itemName):find("Conveyor") ~= nil
 end
 
+local function isTransportItem(itemName)
+    local itemDef = Definitions.GetItem(itemName)
+    if not itemDef then
+        return isConveyorItem(itemName)
+    end
+
+    return itemDef.type == "conveyor" or itemDef.type == "splitter" or itemDef.type == "merger"
+end
+
+local function rotateDirection(dx, dz, rotationSteps)
+    rotationSteps = math.floor(tonumber(rotationSteps) or 0) % 4
+
+    for _ = 1, rotationSteps do
+        dx, dz = -dz, dx
+    end
+
+    return dx, dz
+end
+
+local function getRoutingDirection(cellInfo, activeItem)
+    if not cellInfo then
+        return 1, 0
+    end
+
+    if cellInfo.type == "merger" then
+        return rotateDirection(1, 0, cellInfo.rotation)
+    end
+
+    return cellInfo.directionX or 1, cellInfo.directionZ or 0
+end
+
+local function getSplitterInputLane(splitter, previousCellX, previousCellZ)
+    if previousCellX == nil or previousCellZ == nil then
+        return nil
+    end
+
+    local cellX = splitter:GetAttribute("CellX")
+    local cellZ = splitter:GetAttribute("CellZ")
+    if cellX == nil or cellZ == nil then
+        return nil
+    end
+
+    local cellsX = splitter:GetAttribute("CellsX") or 2
+    local cellsZ = splitter:GetAttribute("CellsZ") or 1
+    local rotation = math.floor(tonumber(splitter:GetAttribute("Rotation")) or 0) % 4
+
+    if rotation == 1 then
+        return previousCellX == cellX - 1 and previousCellZ == cellZ and 1 or nil
+    elseif rotation == 2 then
+        return previousCellZ == cellZ - 1 and previousCellX == cellX + cellsX - 1 and 1 or nil
+    elseif rotation == 3 then
+        return previousCellX == cellX + cellsX and previousCellZ == cellZ + cellsZ - 1 and 1 or nil
+    end
+
+    return previousCellZ == cellZ + cellsZ and previousCellX == cellX and 1 or nil
+end
+
+local function isCellOnSplitterInput(splitter, previousCellX, previousCellZ)
+    return getSplitterInputLane(splitter, previousCellX, previousCellZ) ~= nil
+end
+
+local function getSplitterOutputCell(cellInfo, activeItem, outputLane)
+    local splitter = cellInfo and cellInfo.instance
+    if not splitter or not splitter.Parent then
+        return nil, nil
+    end
+
+    if not isCellOnSplitterInput(splitter, activeItem and activeItem.previousCellX, activeItem and activeItem.previousCellZ) then
+        return nil, nil
+    end
+
+    local cellX = splitter:GetAttribute("CellX")
+    local cellZ = splitter:GetAttribute("CellZ")
+    if cellX == nil or cellZ == nil then
+        return nil, nil
+    end
+
+    outputLane = outputLane or (splitter:GetAttribute("SplitterUseSecondOutput") == true and 2 or 1)
+
+    local cellsX = splitter:GetAttribute("CellsX") or 2
+    local cellsZ = splitter:GetAttribute("CellsZ") or 1
+    local rotation = math.floor(tonumber(splitter:GetAttribute("Rotation")) or 0) % 4
+    local useSecondOutput = outputLane == 2
+
+    if rotation == 1 then
+        return cellX + cellsX, cellZ + (useSecondOutput and 1 or 0)
+    elseif rotation == 2 then
+        return cellX + (useSecondOutput and 0 or 1), cellZ + cellsZ
+    elseif rotation == 3 then
+        return cellX - 1, cellZ + (useSecondOutput and 0 or 1)
+    end
+
+    return cellX + (useSecondOutput and 1 or 0), cellZ - 1
+end
+
+local function getSplitterInputCellForSpawn(cellInfo, spawnCellX, spawnCellZ)
+    local splitter = cellInfo and cellInfo.instance
+    if not splitter or not splitter.Parent then
+        return nil, nil
+    end
+
+    local cellX = splitter:GetAttribute("CellX")
+    local cellZ = splitter:GetAttribute("CellZ")
+    if cellX == nil or cellZ == nil then
+        return nil, nil
+    end
+
+    local cellsX = splitter:GetAttribute("CellsX") or 2
+    local cellsZ = splitter:GetAttribute("CellsZ") or 1
+    local rotation = math.floor(tonumber(splitter:GetAttribute("Rotation")) or 0) % 4
+
+    if rotation == 1 then
+        return cellX - 1, cellZ
+    elseif rotation == 2 then
+        return cellX + cellsX - 1, cellZ - 1
+    elseif rotation == 3 then
+        return cellX + cellsX, cellZ + cellsZ - 1
+    end
+
+    return cellX, cellZ + cellsZ
+end
+
+local function getMergerInputLane(merger, inputCellX, inputCellZ)
+    if inputCellX == nil or inputCellZ == nil then
+        return nil
+    end
+
+    local cellX = merger:GetAttribute("CellX")
+    local cellZ = merger:GetAttribute("CellZ")
+    if cellX == nil or cellZ == nil then
+        return nil
+    end
+
+    local cellsX = merger:GetAttribute("CellsX") or 2
+    local cellsZ = merger:GetAttribute("CellsZ") or 1
+    local rotation = math.floor(tonumber(merger:GetAttribute("Rotation")) or 0) % 4
+
+    if rotation == 1 then
+        if inputCellX == cellX - 1 and inputCellZ >= cellZ and inputCellZ < cellZ + cellsZ then
+            return math.clamp(inputCellZ - cellZ + 1, 1, 2)
+        end
+    elseif rotation == 2 then
+        if inputCellZ == cellZ - 1 and inputCellX >= cellX and inputCellX < cellX + cellsX then
+            return math.clamp(cellX + cellsX - inputCellX, 1, 2)
+        end
+    elseif rotation == 3 then
+        if inputCellX == cellX + cellsX and inputCellZ >= cellZ and inputCellZ < cellZ + cellsZ then
+            return math.clamp(cellZ + cellsZ - inputCellZ, 1, 2)
+        end
+    elseif inputCellZ == cellZ + cellsZ and inputCellX >= cellX and inputCellX < cellX + cellsX then
+        return math.clamp(inputCellX - cellX + 1, 1, 2)
+    end
+
+    return nil
+end
+
+local function getMergerOutputCell(cellInfo, activeItem)
+    local merger = cellInfo and cellInfo.instance
+    if not merger or not merger.Parent then
+        return nil, nil, nil
+    end
+
+    local inputLane = getMergerInputLane(merger, activeItem and activeItem.previousCellX, activeItem and activeItem.previousCellZ)
+    if not inputLane then
+        return nil, nil, nil
+    end
+
+    local cellX = merger:GetAttribute("CellX")
+    local cellZ = merger:GetAttribute("CellZ")
+    if cellX == nil or cellZ == nil then
+        return nil, nil, nil
+    end
+
+    local cellsX = merger:GetAttribute("CellsX") or 2
+    local cellsZ = merger:GetAttribute("CellsZ") or 1
+    local rotation = math.floor(tonumber(merger:GetAttribute("Rotation")) or 0) % 4
+
+    if rotation == 1 then
+        return cellX + cellsX, cellZ, inputLane
+    elseif rotation == 2 then
+        return cellX + cellsX - 1, cellZ + cellsZ, inputLane
+    elseif rotation == 3 then
+        return cellX - 1, cellZ + cellsZ - 1, inputLane
+    end
+
+    return cellX, cellZ - 1, inputLane
+end
+
+local function getMergerInputCellForSpawn(cellInfo, spawnCellX, spawnCellZ)
+    local merger = cellInfo and cellInfo.instance
+    if not merger or not merger.Parent then
+        return nil, nil
+    end
+
+    local cellX = merger:GetAttribute("CellX")
+    local cellZ = merger:GetAttribute("CellZ")
+    if cellX == nil or cellZ == nil then
+        return nil, nil
+    end
+
+    local cellsX = merger:GetAttribute("CellsX") or 2
+    local cellsZ = merger:GetAttribute("CellsZ") or 1
+    local rotation = math.floor(tonumber(merger:GetAttribute("Rotation")) or 0) % 4
+
+    if rotation == 1 then
+        return cellX - 1, spawnCellZ
+    elseif rotation == 2 then
+        return spawnCellX, cellZ - 1
+    elseif rotation == 3 then
+        return cellX + cellsX, spawnCellZ
+    end
+
+    return spawnCellX, cellZ + cellsZ
+end
+
 local function getCellInfo(player, cellX, cellZ)
     for _, item in ipairs(getPlacedItems(player)) do
         if item and item.Parent and doesFootprintContain(item, cellX, cellZ) then
@@ -128,12 +343,15 @@ local function getCellInfo(player, cellX, cellZ)
             local itemDef = Definitions.GetItem(itemName)
             local machineDef = Definitions.GetMachine(itemName)
 
-            if isConveyorItem(itemName) then
+            if isTransportItem(itemName) then
                 local directionX, directionZ = getConveyorDirection(item)
+                local cellType = itemDef and itemDef.type or "conveyor"
 
                 return {
-                    type = "conveyor",
+                    type = cellType,
                     instance = item,
+                    itemDef = itemDef,
+                    rotation = item:GetAttribute("Rotation") or 0,
                     directionX = directionX,
                     directionZ = directionZ,
                 }
@@ -180,6 +398,81 @@ end
 
 local function canReserveCell(player, cellX, cellZ)
     return countItemsInCell(player, cellX, cellZ) < MAX_ITEMS_PER_CELL
+end
+
+local function isTransportCell(cellInfo)
+    return cellInfo and (cellInfo.type == "conveyor" or cellInfo.type == "splitter" or cellInfo.type == "merger")
+end
+
+local function canReceiveSplitOutput(cellInfo)
+    return cellInfo and (isTransportCell(cellInfo) or cellInfo.type == "machine" or cellInfo.type == "sell_zone")
+end
+
+local function selectSplitterOutputCell(player, splitterCellInfo, activeItem)
+    local splitter = splitterCellInfo and splitterCellInfo.instance
+    if not splitter then
+        return nil, nil
+    end
+
+    local straightCellX, straightCellZ = getSplitterOutputCell(splitterCellInfo, activeItem, 1)
+    if straightCellX == nil or straightCellZ == nil then
+        return nil, nil
+    end
+
+    local preferredLane = splitter:GetAttribute("SplitterUseSecondOutput") == true and 2 or 1
+    if preferredLane == 1 then
+        splitter:SetAttribute("SplitterUseSecondOutput", true)
+        return straightCellX, straightCellZ
+    end
+
+    local branchCellX, branchCellZ = getSplitterOutputCell(splitterCellInfo, activeItem, 2)
+    local branchCell = getCellInfo(player, branchCellX, branchCellZ)
+    if canReceiveSplitOutput(branchCell) and canReserveCell(player, branchCellX, branchCellZ) then
+        splitter:SetAttribute("SplitterUseSecondOutput", false)
+        return branchCellX, branchCellZ
+    end
+
+    return straightCellX, straightCellZ
+end
+
+local function shouldAllowMergerInput(activeItem, mergerCellInfo, inputLane)
+    local merger = mergerCellInfo and mergerCellInfo.instance
+    if not merger or not inputLane then
+        return false
+    end
+
+    local hasCompetingInput = false
+    for _, otherItem in ipairs(activeItems) do
+        if otherItem ~= activeItem and otherItem.player == activeItem.player and otherItem.model and otherItem.model.Parent and not otherItem.isMoving and not otherItem.waitingForMachine then
+            local otherCurrentCell = getCellInfo(otherItem.player, otherItem.cellX, otherItem.cellZ)
+            if isTransportCell(otherCurrentCell) and otherCurrentCell.type ~= "splitter" and otherCurrentCell.type ~= "merger" then
+                local otherDx, otherDz = getRoutingDirection(otherCurrentCell, otherItem)
+                local otherNextCell = getCellInfo(otherItem.player, otherItem.cellX + otherDx, otherItem.cellZ + otherDz)
+                if otherNextCell and otherNextCell.instance == merger then
+                    local otherLane = getMergerInputLane(merger, otherItem.cellX, otherItem.cellZ)
+                    if otherLane and otherLane ~= inputLane then
+                        hasCompetingInput = true
+                        break
+                    end
+                end
+            end
+        end
+    end
+
+    if not hasCompetingInput then
+        return true
+    end
+
+    local nextInputLane = merger:GetAttribute("MergerNextInputLane")
+    if nextInputLane ~= 1 and nextInputLane ~= 2 then
+        nextInputLane = 1
+    end
+
+    if inputLane ~= nextInputLane then
+        return false
+    end
+
+    return true
 end
 
 local function getItemCFrame(item)
@@ -474,7 +767,7 @@ local function handleArrival(activeItem)
         feedMachine(cellInfo, activeItem)
     elseif cellInfo.type == "sell_zone" then
         sellItem(activeItem, cellInfo)
-    elseif cellInfo.type ~= "conveyor" then
+    elseif not isTransportCell(cellInfo) then
         destroyProductionItem(activeItem, true)
     else
         activeItem.visitedCells[cellKey(activeItem.cellX, activeItem.cellZ)] = true
@@ -499,13 +792,50 @@ local function tryStartNextSegment(activeItem)
     end
 
     local currentCell = getCellInfo(activeItem.player, activeItem.cellX, activeItem.cellZ)
-    local dx = (currentCell and currentCell.directionX) or 1
-    local dz = (currentCell and currentCell.directionZ) or 0
-    local nextCellX = activeItem.cellX + dx
-    local nextCellZ = activeItem.cellZ + dz
+    if not isTransportCell(currentCell) then
+        destroyProductionItem(activeItem, true)
+        return
+    end
+
+    if currentCell.type == "splitter" and not activeItem.spawnedOnSplitter then
+        destroyProductionItem(activeItem, true)
+        return
+    end
+
+    if currentCell.type == "merger" and not activeItem.spawnedOnMerger then
+        destroyProductionItem(activeItem, true)
+        return
+    end
+
+    local nextCellX = nil
+    local nextCellZ = nil
+    local mergerToAdvance = nil
+    local mergerInputLane = nil
+    if currentCell.type == "splitter" then
+        activeItem.spawnedOnSplitter = false
+        nextCellX, nextCellZ = selectSplitterOutputCell(activeItem.player, currentCell, activeItem)
+    elseif currentCell.type == "merger" then
+        local inputLane = nil
+        nextCellX, nextCellZ, inputLane = getMergerOutputCell(currentCell, activeItem)
+        if not shouldAllowMergerInput(activeItem, currentCell, inputLane) then
+            return
+        end
+        mergerToAdvance = currentCell.instance
+        mergerInputLane = inputLane
+        activeItem.spawnedOnMerger = false
+    else
+        local dx, dz = getRoutingDirection(currentCell, activeItem)
+        nextCellX = activeItem.cellX + dx
+        nextCellZ = activeItem.cellZ + dz
+    end
+
+    if nextCellX == nil or nextCellZ == nil then
+        destroyProductionItem(activeItem, true)
+        return
+    end
     local nextCell = getCellInfo(activeItem.player, nextCellX, nextCellZ)
     local nextCellKey = cellKey(nextCellX, nextCellZ)
-    local isLoopingToVisitedConveyor = nextCell and nextCell.type == "conveyor" and activeItem.visitedCells[nextCellKey] == true
+    local isLoopingToVisitedTransport = isTransportCell(nextCell) and activeItem.visitedCells[nextCellKey] == true
 
     local startPosition = gridToWorldPosition(activeItem.player, activeItem.cellX, activeItem.cellZ)
     if not startPosition then
@@ -519,6 +849,48 @@ local function tryStartNextSegment(activeItem)
         return
     end
 
+    if nextCell and nextCell.type == "splitter" then
+        local routedCellX, routedCellZ = selectSplitterOutputCell(activeItem.player, nextCell, {
+            previousCellX = activeItem.cellX,
+            previousCellZ = activeItem.cellZ,
+        })
+
+        if routedCellX == nil or routedCellZ == nil then
+            destroyProductionItem(activeItem, true)
+            return
+        end
+
+        nextCellX = routedCellX
+        nextCellZ = routedCellZ
+        nextCell = getCellInfo(activeItem.player, nextCellX, nextCellZ)
+        nextCellKey = cellKey(nextCellX, nextCellZ)
+        isLoopingToVisitedTransport = isTransportCell(nextCell) and activeItem.visitedCells[nextCellKey] == true
+    end
+
+    if nextCell and nextCell.type == "merger" then
+        local routedCellX, routedCellZ, inputLane = getMergerOutputCell(nextCell, {
+            previousCellX = activeItem.cellX,
+            previousCellZ = activeItem.cellZ,
+        })
+
+        if routedCellX == nil or routedCellZ == nil then
+            destroyProductionItem(activeItem, true)
+            return
+        end
+
+        if not shouldAllowMergerInput(activeItem, nextCell, inputLane) then
+            return
+        end
+
+        mergerToAdvance = nextCell.instance
+        mergerInputLane = inputLane
+        nextCellX = routedCellX
+        nextCellZ = routedCellZ
+        nextCell = getCellInfo(activeItem.player, nextCellX, nextCellZ)
+        nextCellKey = cellKey(nextCellX, nextCellZ)
+        isLoopingToVisitedTransport = isTransportCell(nextCell) and activeItem.visitedCells[nextCellKey] == true
+    end
+
     if nextCell and not canReserveCell(activeItem.player, nextCellX, nextCellZ) then
         return
     end
@@ -529,13 +901,17 @@ local function tryStartNextSegment(activeItem)
         return
     end
 
+    if mergerToAdvance and mergerInputLane then
+        mergerToAdvance:SetAttribute("MergerNextInputLane", mergerInputLane == 1 and 2 or 1)
+    end
+
     activeItem.startCFrame = CFrame.new(startPosition)
     activeItem.targetCFrame = CFrame.new(targetPosition)
     activeItem.targetCellX = nextCellX
     activeItem.targetCellZ = nextCellZ
     activeItem.segmentProgress = 0
-    activeItem.totalDistance = GRID_UNIT_SIZE
-    activeItem.destroyOnArrival = isLoopingToVisitedConveyor
+    activeItem.totalDistance = math.max((targetPosition - startPosition).Magnitude, 0.001)
+    activeItem.destroyOnArrival = isLoopingToVisitedTransport
     activeItem.isMoving = true
 end
 
@@ -554,6 +930,8 @@ local function moveItemAlongConveyor(activeItem, deltaTime)
     setItemCFrame(activeItem.model, activeItem.startCFrame:Lerp(activeItem.targetCFrame, activeItem.segmentProgress))
 
     if activeItem.segmentProgress >= 1 then
+        activeItem.previousCellX = activeItem.cellX
+        activeItem.previousCellZ = activeItem.cellZ
         activeItem.cellX = activeItem.targetCellX
         activeItem.cellZ = activeItem.targetCellZ
         handleArrival(activeItem)
@@ -578,8 +956,8 @@ function ConveyorSystem.SpawnProductionItem(player, itemName, cellX, cellZ, conv
     cellZ = math.floor(tonumber(cellZ) or 0)
 
     local cellInfo = getCellInfo(player, cellX, cellZ)
-    if not cellInfo or cellInfo.type ~= "conveyor" then
-        return nil, "No conveyor at target cell"
+    if not isTransportCell(cellInfo) then
+        return nil, "No transport at target cell"
     end
 
     if not canReserveCell(player, cellX, cellZ) then
@@ -607,6 +985,14 @@ function ConveyorSystem.SpawnProductionItem(player, itemName, cellX, cellZ, conv
         waitingForMachine = false,
         isMoving = false,
     }
+
+    if cellInfo.type == "splitter" then
+        activeItem.previousCellX, activeItem.previousCellZ = getSplitterInputCellForSpawn(cellInfo, cellX, cellZ)
+        activeItem.spawnedOnSplitter = activeItem.previousCellX ~= nil and activeItem.previousCellZ ~= nil
+    elseif cellInfo.type == "merger" then
+        activeItem.previousCellX, activeItem.previousCellZ = getMergerInputCellForSpawn(cellInfo, cellX, cellZ)
+        activeItem.spawnedOnMerger = activeItem.previousCellX ~= nil and activeItem.previousCellZ ~= nil
+    end
 
     table.insert(activeItems, activeItem)
     return activeItem

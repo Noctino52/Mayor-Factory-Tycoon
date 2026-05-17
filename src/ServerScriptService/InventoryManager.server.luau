@@ -341,6 +341,109 @@ local function createConveyorTemplate()
     return conveyor
 end
 
+local function createTransportJunctionTemplate(itemName)
+    local existing = templatesFolder:FindFirstChild(itemName)
+    if existing then
+        return existing
+    end
+
+    local isSplitter = itemName == "Splitter"
+    local isMerger = itemName == "Merger"
+    local junction = Instance.new("Model")
+    junction.Name = itemName
+
+    local base = Instance.new("Part")
+    base.Name = itemName .. "Base"
+    base.Size = (isSplitter or isMerger) and Vector3.new(15.6, 0.45, 7.6) or Vector3.new(7.6, 0.45, 7.6)
+    base.CFrame = CFrame.new(0, 0.225, 0)
+    base.Anchored = true
+    base.CanCollide = true
+    base.Material = Enum.Material.Metal
+    base.Color = isSplitter and Color3.fromRGB(64, 72, 88) or Color3.fromRGB(72, 64, 88)
+    base.Parent = junction
+
+    local forward = Instance.new("Part")
+    forward.Name = isSplitter and "NorthOutputA" or "NorthOutput"
+    forward.Size = isSplitter and Vector3.new(0.85, 0.08, 3.8) or Vector3.new(0.85, 0.08, 3.8)
+    forward.CFrame = isSplitter and CFrame.new(-2, 0.52, -1.1) or CFrame.new(0, 0.52, -1.1)
+    forward.Anchored = true
+    forward.CanCollide = false
+    forward.CanQuery = false
+    forward.CanTouch = false
+    forward.Material = Enum.Material.Neon
+    forward.Color = isSplitter and Color3.fromRGB(95, 220, 255) or Color3.fromRGB(205, 165, 255)
+    forward.Parent = junction
+
+    local forwardHead = Instance.new("WedgePart")
+    forwardHead.Name = isSplitter and "NorthOutputAHead" or "NorthOutputHead"
+    forwardHead.Size = Vector3.new(1.0, 0.08, 1.45)
+    forwardHead.CFrame = isSplitter and CFrame.new(-2, 0.52, -2.95) * CFrame.Angles(0, math.rad(-90), math.rad(-90)) or CFrame.new(0, 0.52, -2.95) * CFrame.Angles(0, math.rad(-90), math.rad(-90))
+    forwardHead.Anchored = true
+    forwardHead.CanCollide = false
+    forwardHead.CanQuery = false
+    forwardHead.CanTouch = false
+    forwardHead.Material = Enum.Material.Neon
+    forwardHead.Color = forward.Color
+    forwardHead.Parent = junction
+
+    if isSplitter then
+        local branch = Instance.new("Part")
+        branch.Name = "NorthOutputB"
+        branch.Size = Vector3.new(0.85, 0.08, 3.8)
+        branch.CFrame = CFrame.new(2, 0.54, -1.1)
+        branch.Anchored = true
+        branch.CanCollide = false
+        branch.CanQuery = false
+        branch.CanTouch = false
+        branch.Material = Enum.Material.Neon
+        branch.Color = Color3.fromRGB(120, 255, 170)
+        branch.Parent = junction
+
+        local branchHead = Instance.new("WedgePart")
+        branchHead.Name = "NorthOutputBHead"
+        branchHead.Size = Vector3.new(1.0, 0.08, 1.45)
+        branchHead.CFrame = CFrame.new(2, 0.54, -2.95) * CFrame.Angles(0, math.rad(-90), math.rad(-90))
+        branchHead.Anchored = true
+        branchHead.CanCollide = false
+        branchHead.CanQuery = false
+        branchHead.CanTouch = false
+        branchHead.Material = Enum.Material.Neon
+        branchHead.Color = branch.Color
+        branchHead.Parent = junction
+
+        local input = Instance.new("Part")
+        input.Name = "SouthInput"
+        input.Size = Vector3.new(0.85, 0.08, 3.2)
+        input.CFrame = CFrame.new(-2, 0.56, 1.0)
+        input.Anchored = true
+        input.CanCollide = false
+        input.CanQuery = false
+        input.CanTouch = false
+        input.Material = Enum.Material.Neon
+        input.Color = Color3.fromRGB(255, 220, 120)
+        input.Parent = junction
+    else
+        for inputIndex, inputX in ipairs({ -2, 2 }) do
+            local input = Instance.new("Part")
+            input.Name = "SouthInput" .. inputIndex
+            input.Size = Vector3.new(0.85, 0.08, 3.2)
+            input.CFrame = CFrame.new(inputX, 0.54, 1.0)
+            input.Anchored = true
+            input.CanCollide = false
+            input.CanQuery = false
+            input.CanTouch = false
+            input.Material = Enum.Material.Neon
+            input.Color = inputIndex == 1 and Color3.fromRGB(255, 190, 105) or Color3.fromRGB(255, 225, 135)
+            input.Parent = junction
+        end
+    end
+
+    junction.PrimaryPart = base
+    junction.Parent = templatesFolder
+
+    return junction
+end
+
 local function createSawmillTemplate()
     local existing = templatesFolder:FindFirstChild("Sawmill")
     if existing then
@@ -472,6 +575,10 @@ local function ensureItemTemplate(itemName)
 
     if itemName == "Conveyor" then
         return createConveyorTemplate()
+    end
+
+    if itemName == "Splitter" or itemName == "Merger" then
+        return createTransportJunctionTemplate(itemName)
     end
 
     if itemName == "Sawmill" then
