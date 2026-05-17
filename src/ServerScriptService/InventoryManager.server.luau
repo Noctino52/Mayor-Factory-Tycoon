@@ -14,6 +14,7 @@ local ConveyorSystem = require(game.ServerScriptService.ConveyorSystem)
 local MachineSystem = require(game.ServerScriptService.MachineSystem)
 local PowerSystem = require(game.ServerScriptService.PowerSystem)
 local SellSystem = require(game.ServerScriptService.SellSystem)
+local TutorialSystem = require(game.ServerScriptService.TutorialSystem)
 
 -- Configuration
 local GRID_UNIT_SIZE = 8 -- Fixed grid size in studs
@@ -2075,6 +2076,8 @@ local function onPlayerAdded(player)
         spawnSavedItems(player, savedData.placedItems, plotId)
     end
     reconcileSellZoneOwnership(player)
+    PowerSystem.RefreshPlayer(player)
+    TutorialSystem.SyncPlayerState(player, playerData[player].inventory, playerData[player].placedItems)
     
     -- Teleport player to their plot when character spawns
     if player.Character then
@@ -2254,6 +2257,7 @@ placeItemRemote.OnServerEvent:Connect(function(player, itemName, position, scale
     -- Save after placing
     savePlayerData(player)
     notifyInventoryUpdated(player)
+    TutorialSystem.SyncPlayerState(player, data.inventory, data.placedItems)
     
     if shouldLogItemAction(itemName) then
         print(player.Name .. " placed " .. itemName .. " at " .. tostring(position) .. " on Plot " .. plotId)
@@ -2531,6 +2535,7 @@ buyItemRemote.OnServerEvent:Connect(function(player, itemName)
     -- Save after purchase
     savePlayerData(player)
     notifyInventoryUpdated(player)
+    TutorialSystem.SyncPlayerState(player, playerData[player].inventory, playerData[player].placedItems)
     sendShopResult(player, true, "buy", itemName, "Purchased " .. itemName .. ".", newBalance)
 end)
 
@@ -2585,6 +2590,134 @@ local function protectAllPlots()
     end
 end
 
+local function findPlayerByUserId(userId)
+    userId = tonumber(userId)
+    if not userId then
+        return nil
+    end
+
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player.UserId == userId then
+            return player
+        end
+    end
+
+    return nil
+end
+
+local function clearPlayerPlacedItemsForAdmin(player)
+    local data = playerData[player]
+    if not data then
+        return
+    end
+
+    for index = #data.placedItems, 1, -1 do
+        local placedItem = data.placedItems[index]
+        if placedItem then
+            MachineSystem.UnregisterPlacedItem(player, placedItem)
+            PowerSystem.UnregisterPlacedItem(player, placedItem)
+            SellSystem.UnregisterPlacedItem(player, placedItem)
+            if placedItem.Parent then
+                placedItem:Destroy()
+            end
+        end
+
+        table.remove(data.placedItems, index)
+    end
+
+    local playerItemsFolder = workspace:FindFirstChild("PlayerItems_" .. player.UserId)
+    if playerItemsFolder then
+        for _, child in ipairs(playerItemsFolder:GetChildren()) do
+            if child:GetAttribute("Owner") == player.UserId then
+                MachineSystem.UnregisterPlacedItem(player, child)
+                PowerSystem.UnregisterPlacedItem(player, child)
+                SellSystem.UnregisterPlacedItem(player, child)
+                child:Destroy()
+            end
+        end
+    end
+end
+
+local function applyAdminPlotData(player, rawPlotData)
+    local data = playerData[player]
+    local plotId = playerPlots[player.UserId]
+    if not data or not plotId then
+        return false, "Player plot data is not ready"
+    end
+
+    rawPlotData = type(rawPlotData) == "table" and rawPlotData or {}
+    local migratedData = migratePlotSaveData({
+        version = rawPlotData.version,
+        plotId = plotId,
+        inventory = rawPlotData.inventory,
+        placedItems = rawPlotData.placedItems,
+        lastSaved = rawPlotData.lastSaved,
+    }) or {
+        version = PLOT_SAVE_VERSION,
+        plotId = plotId,
+        inventory = createDefaultInventory(),
+        placedItems = {},
+        lastSaved = tick(),
+    }
+
+    clearPlayerPlacedItemsForAdmin(player)
+    data.inventory = migrateInventory(migratedData.inventory)
+
+    if migratedData.placedItems then
+        spawnSavedItems(player, migratedData.placedItems, plotId)
+    end
+
+    reconcileSellZoneOwnership(player)
+    savePlayerData(player)
+    notifyInventoryUpdated(player)
+    TutorialSystem.SyncPlayerState(player, data.inventory, data.placedItems)
+
+    return true, createPlotSaveData(player, plotId)
+end
+
+local function resetAdminPlotData(player)
+    local data = playerData[player]
+    local plotId = playerPlots[player.UserId]
+    if not data or not plotId then
+        return false, "Player plot data is not ready"
+    end
+
+    clearPlayerPlacedItemsForAdmin(player)
+    data.inventory = createDefaultInventory()
+    reconcileSellZoneOwnership(player)
+    savePlayerData(player)
+    notifyInventoryUpdated(player)
+    TutorialSystem.SyncPlayerState(player, data.inventory, data.placedItems)
+
+    return true, createPlotSaveData(player, plotId)
+end
+
+local adminInventoryBridge = game.ServerScriptService:FindFirstChild("AdminInventoryBridge")
+if adminInventoryBridge then
+    adminInventoryBridge:Destroy()
+end
+
+adminInventoryBridge = Instance.new("BindableFunction")
+adminInventoryBridge.Name = "AdminInventoryBridge"
+adminInventoryBridge.Parent = game.ServerScriptService
+adminInventoryBridge.OnInvoke = function(action, userId, payload)
+    local player = findPlayerByUserId(userId)
+    if not player then
+        return false, "Player is not online"
+    end
+
+    local plotId = playerPlots[player.UserId]
+    if action == "GetPlotData" then
+        return true, createPlotSaveData(player, plotId)
+    elseif action == "ApplyPlotData" then
+        return applyAdminPlotData(player, payload)
+    elseif action == "ResetPlotData" then
+        return resetAdminPlotData(player)
+    end
+
+    return false, "Unknown admin inventory action"
+end
+
 ConveyorSystem.Initialize({
     getPlayerPlot = function(player)
         local plotId = playerPlots[player.UserId]
@@ -2610,6 +2743,7 @@ ConveyorSystem.Initialize({
 })
 MachineSystem.Initialize()
 SellSystem.Initialize()
+TutorialSystem.Initialize()
 
 -- Setup players
 Players.PlayerAdded:Connect(onPlayerAdded)

@@ -4,6 +4,7 @@ local Players = game:GetService("Players")
 local ConveyorSystem = require(game.ServerScriptService.ConveyorSystem)
 local Definitions = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Definitions"))
 local PlayerProgress = require(game.ServerScriptService.PlayerProgress)
+local TutorialSystem = require(game.ServerScriptService.TutorialSystem)
 
 local SellSystem = {}
 
@@ -196,6 +197,7 @@ function SellSystem.SellItem(player, itemName, cellX, cellZ, productionItem)
     PlayerProgress.SavePlayerProgress(player, progress)
 
     local reputationResult = PlayerProgress.AddReputation(player, zone.npcName, reputationReward)
+    TutorialSystem.ObserveSale(player, itemName, zone.npcName, 1)
 
     saleFeedbackRemote:FireClient(player, {
         itemName = itemName,

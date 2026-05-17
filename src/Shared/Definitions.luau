@@ -250,7 +250,7 @@ local TOWN_PRESTIGE_STAGES = {
 		stage = 1,
 		name = "Outpost",
 		requirements = { totalContribution = 0 },
-		rewards = { powerCapacity = 50, newShopItems = {} },
+		rewards = { powerCapacity = 100, newShopItems = {} },
 	},
 	{
 		stage = 2,

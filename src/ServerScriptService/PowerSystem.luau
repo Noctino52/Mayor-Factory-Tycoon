@@ -10,6 +10,7 @@ local playerItems = {}
 local nextRegistrationOrder = 0
 
 local REFRESH_INTERVAL = 1
+local BASE_POWER_CAPACITY = 100
 
 local function getItemName(item)
     if not item then
@@ -163,10 +164,10 @@ function PowerSystem.GetBaseCapacity(player)
 
     local progress = PlayerProgress.GetPlayerProgress(player)
     local townPrestige = progress.townPrestige or {}
-    local stageInfo = PlayerProgress.GetTownPrestigeStageInfo(townPrestige.stage)
+    local stageInfo = PlayerProgress.GetTownPrestigeStageInfo(townPrestige.stage) or PlayerProgress.GetTownPrestigeStageInfo(1)
     local rewards = stageInfo and stageInfo.rewards or {}
 
-    return math.max(0, tonumber(rewards.powerCapacity) or 0)
+    return math.max(BASE_POWER_CAPACITY, tonumber(rewards.powerCapacity) or 0)
 end
 
 function PowerSystem.GetGeneratorCapacity(player)

@@ -14,6 +14,7 @@
 local PlayerProgress = {}
 
 local DataStoreService = game:GetService("DataStoreService")
+local Players = game:GetService("Players")
 local Definitions = require(game.ReplicatedStorage.Shared.Definitions)
 
 -- ============================================================================
@@ -21,10 +22,13 @@ local Definitions = require(game.ReplicatedStorage.Shared.Definitions)
 -- ============================================================================
 
 local DATASTORE_NAME = "MayorsFactoryTycoon_PlayerData"
-local DATASTORE_VERSION = 2
+local DATASTORE_VERSION = 3
 local AUTO_SAVE_INTERVAL = 30 -- seconds
 local SAVE_DEBOUNCE_INTERVAL = 8 -- seconds
 local MAX_RETRIES = 3
+local TUTORIAL_STEP_COUNT = 6
+local STARTING_MONEY = 350
+local MIN_TOWN_PRESTIGE_STAGE = 1
 
 -- ============================================================================
 -- Cache and DataStore access
@@ -55,10 +59,64 @@ end
 -- Default data structure
 -- ============================================================================
 
+local function GetDefaultTutorialProgress()
+	return {
+		currentStep = 1,
+		completed = false,
+		completedSteps = {},
+	}
+end
+
+local function NormalizeTutorialProgress(tutorialData)
+	local tutorial = GetDefaultTutorialProgress()
+
+	if type(tutorialData) ~= "table" then
+		return tutorial
+	end
+
+	if type(tutorialData.completedSteps) == "table" then
+		for stepId, completed in pairs(tutorialData.completedSteps) do
+			local stepNumber = math.floor(tonumber(stepId) or 0)
+			if completed == true and stepNumber >= 1 and stepNumber <= TUTORIAL_STEP_COUNT then
+				tutorial.completedSteps[tostring(stepNumber)] = true
+			end
+		end
+	end
+
+	tutorial.completed = tutorialData.completed == true
+	if tutorial.completed then
+		tutorial.currentStep = TUTORIAL_STEP_COUNT + 1
+		for stepNumber = 1, TUTORIAL_STEP_COUNT do
+			tutorial.completedSteps[tostring(stepNumber)] = true
+		end
+		return tutorial
+	end
+
+	local currentStep = math.floor(tonumber(tutorialData.currentStep) or 1)
+	currentStep = math.clamp(currentStep, 1, TUTORIAL_STEP_COUNT)
+
+	while currentStep <= TUTORIAL_STEP_COUNT and tutorial.completedSteps[tostring(currentStep)] == true do
+		currentStep += 1
+	end
+
+	if currentStep > TUTORIAL_STEP_COUNT then
+		tutorial.currentStep = TUTORIAL_STEP_COUNT + 1
+		tutorial.completed = true
+	else
+		tutorial.currentStep = currentStep
+	end
+
+	return tutorial
+end
+
+local function NormalizeTownPrestigeStage(stage)
+	return math.max(MIN_TOWN_PRESTIGE_STAGE, math.floor(tonumber(stage) or MIN_TOWN_PRESTIGE_STAGE))
+end
+
 local function GetDefaultProgress()
 	return {
 		version = DATASTORE_VERSION,
-		money = 10000, -- 10000 for testing
+		money = STARTING_MONEY,
 		npcReputation = {
 			Mira = 0,
 			Bront = 0,
@@ -73,6 +131,7 @@ local function GetDefaultProgress()
 			npcSold = {}, -- npcName -> { itemName -> count }
 			mayorContribution = {}, -- itemName -> count
 		},
+		tutorial = GetDefaultTutorialProgress(),
 		lastSaved = tick(),
 	}
 end
@@ -93,7 +152,7 @@ local function MigrateProgressData(storedData)
 	end
 
 	if type(storedData.townPrestige) == "table" then
-		migrated.townPrestige.stage = tonumber(storedData.townPrestige.stage) or migrated.townPrestige.stage
+		migrated.townPrestige.stage = NormalizeTownPrestigeStage(storedData.townPrestige.stage)
 		migrated.townPrestige.contributions = tonumber(storedData.townPrestige.contributions) or migrated.townPrestige.contributions
 		migrated.townPrestige.lastReward = storedData.townPrestige.lastReward
 	end
@@ -106,6 +165,7 @@ local function MigrateProgressData(storedData)
 		end
 	end
 
+	migrated.tutorial = NormalizeTutorialProgress(storedData.tutorial)
 	migrated.lastSaved = tonumber(storedData.lastSaved) or migrated.lastSaved
 
 	return migrated
@@ -125,7 +185,7 @@ local function DeepCopy(value)
 end
 
 local function GetNextTownPrestigeStageInfo(currentStage)
-	currentStage = tonumber(currentStage) or 1
+	currentStage = NormalizeTownPrestigeStage(currentStage)
 
 	for _, stageInfo in pairs(Definitions.TOWN_PRESTIGE_STAGES) do
 		if (tonumber(stageInfo.stage) or 0) == currentStage + 1 then
@@ -453,7 +513,7 @@ function PlayerProgress.RecordSale(player, itemName, npcName, quantity)
 end
 
 function PlayerProgress.GetTownPrestigeStageInfo(stage)
-	stage = tonumber(stage) or 1
+	stage = NormalizeTownPrestigeStage(stage)
 
 	local bestStageInfo = nil
 	for _, stageInfo in pairs(Definitions.TOWN_PRESTIGE_STAGES) do
@@ -487,7 +547,7 @@ end
 
 function PlayerProgress.GetUnlockedShopItems(player)
 	local progress = PlayerProgress.GetPlayerProgress(player)
-	local currentStage = tonumber(progress.townPrestige and progress.townPrestige.stage) or 1
+	local currentStage = NormalizeTownPrestigeStage(progress.townPrestige and progress.townPrestige.stage)
 	local unlockedItems = {}
 
 	for itemName, itemDef in pairs(Definitions.GetAllItems()) do
@@ -516,6 +576,28 @@ function PlayerProgress.IsShopItemUnlocked(player, itemName)
 	return unlockedItems[itemName] == true
 end
 
+function PlayerProgress.GetTutorialProgress(player)
+	if not player then
+		error("[PlayerProgress] Player is required")
+	end
+
+	local progress = PlayerProgress.GetPlayerProgress(player)
+	progress.tutorial = NormalizeTutorialProgress(progress.tutorial)
+
+	return progress.tutorial
+end
+
+function PlayerProgress.SaveTutorialProgress(player, tutorialProgress)
+	if not player then
+		error("[PlayerProgress] Player is required")
+	end
+
+	local progress = PlayerProgress.GetPlayerProgress(player)
+	progress.tutorial = NormalizeTutorialProgress(tutorialProgress)
+
+	return PlayerProgress.SavePlayerProgress(player, progress)
+end
+
 --[[
 	GetPublicProgressSnapshot(player: Player) -> table
 
@@ -539,7 +621,7 @@ function PlayerProgress.GetPublicProgressSnapshot(player)
 		mayorContribution = DeepCopy(statistics.mayorContribution or {}),
 		npcReputation = DeepCopy(progress.npcReputation or {}),
 		townPrestige = {
-			stage = tonumber(townPrestige.stage) or 1,
+			stage = NormalizeTownPrestigeStage(townPrestige.stage),
 			stageName = currentStageInfo and currentStageInfo.name or nil,
 			contributions = tonumber(townPrestige.contributions) or 0,
 			nextStage = nextStageInfo and {
@@ -549,6 +631,7 @@ function PlayerProgress.GetPublicProgressSnapshot(player)
 				rewards = DeepCopy(nextStageInfo.rewards or {}),
 			} or nil,
 		},
+		tutorial = DeepCopy(PlayerProgress.GetTutorialProgress(player)),
 	}
 end
 
@@ -565,7 +648,8 @@ function PlayerProgress.CheckTownPrestigeUpgrade(player)
 	end
 
 	local progress = PlayerProgress.GetPlayerProgress(player)
-	local currentStage = progress.townPrestige.stage
+	local currentStage = NormalizeTownPrestigeStage(progress.townPrestige.stage)
+	progress.townPrestige.stage = currentStage
 	local allStages = Definitions.TOWN_PRESTIGE_STAGES
 
 	-- Find next stage
@@ -638,6 +722,74 @@ end
 ]]
 function PlayerProgress.GetAllPlayers()
 	return playerDataCache
+end
+
+function PlayerProgress.AdminGetDefaultProgress()
+	return DeepCopy(GetDefaultProgress())
+end
+
+function PlayerProgress.AdminLoadProgressByUserId(userId)
+	userId = tonumber(userId)
+	if not userId then
+		return false, "UserId must be a number"
+	end
+
+	if playerDataCache[userId] then
+		return true, DeepCopy(playerDataCache[userId])
+	end
+
+	local storedData = LoadPlayerDataFromStore(userId)
+	if storedData then
+		return true, MigrateProgressData(storedData)
+	end
+
+	return true, GetDefaultProgress()
+end
+
+function PlayerProgress.AdminSaveProgressByUserId(userId, progressData)
+	userId = tonumber(userId)
+	if not userId then
+		return false, "UserId must be a number"
+	end
+
+	if type(progressData) ~= "table" then
+		return false, "Progress data must be a table"
+	end
+
+	local migratedData = MigrateProgressData(progressData)
+	local onlinePlayer = Players:GetPlayerByUserId(userId)
+	if onlinePlayer then
+		playerDataCache[userId] = migratedData
+	end
+
+	local success, err = SavePlayerDataToStore(userId, migratedData)
+	if not success then
+		return false, err or "Failed to save progress"
+	end
+
+	dirtyPlayerData[userId] = nil
+	return true, DeepCopy(migratedData)
+end
+
+function PlayerProgress.AdminResetProgressByUserId(userId)
+	userId = tonumber(userId)
+	if not userId then
+		return false, "UserId must be a number"
+	end
+
+	local defaultData = GetDefaultProgress()
+	local onlinePlayer = Players:GetPlayerByUserId(userId)
+	if onlinePlayer then
+		playerDataCache[userId] = defaultData
+	end
+
+	local success, err = SavePlayerDataToStore(userId, defaultData)
+	if not success then
+		return false, err or "Failed to reset progress"
+	end
+
+	dirtyPlayerData[userId] = nil
+	return true, DeepCopy(defaultData)
 end
 
 --[[
