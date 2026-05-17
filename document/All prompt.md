@@ -1942,16 +1942,1164 @@ A questo punto hai:
 
 ---
 
+# 🟠 FASE 4: MVP Production Lines, Progressione e Polish Release (Prompt 21-30)
+
+## 📝 PROMPT 21 - Completare Linea Legno con Crate Assembler
+
+### Contesto
+La linea legno ora produce Log, Plank e Beam, ma il GDD prevede che Mira accetti anche **Crate**. Serve una macchina finale che renda la linea legno più lunga e più interessante prima di introdurre pietra e ferro completi.
+
+Questa feature deve restare semplice: una macchina in più, un output in più, nessuna recipe multipla complessa.
+
+### Obiettivo
+Aggiungere **CrateAssembler** e l'item **Crate**, completando la linea:
+TreeFarm -> Sawmill -> BeamCutter -> CrateAssembler -> Mira Sell Zone.
+
+### Dettagli Tecnici
+
+**File da modificare:**
+- `src/ReplicatedStorage/Shared/Definitions.luau`
+- `src/ServerScriptService/MachineSystem.luau`
+- `src/ServerScriptService/SellSystem.luau`
+- `src/ServerScriptService/InventoryManager.server.luau`
+- `src/StarterPlayer/StarterPlayerScripts/ProductionItems.lua`
+
+### Nuovo Production Item
+
+```lua
+Crate = {
+  name = "Crate",
+  icon = "📦",
+  category = "wood",
+  value = 45,
+  rarity = "common",
+  isProduction = true
+}
+```
+
+### Nuova Macchina
+
+```lua
+CrateAssembler = {
+  name = "CrateAssembler",
+  type = "processor",
+  inputItem = "Beam",
+  inputCount = 2,
+  outputItem = "Crate",
+  processingTime = 6,
+  inputQueueSize = 4,
+  powerRequired = 18,
+  outputRotationOffset = 0
+}
+```
+
+### Shop Item
+
+```lua
+CrateAssembler = {
+  name = "CrateAssembler",
+  icon = "📦",
+  category = "machine",
+  cost = 350,
+  type = "processor",
+  isMachine = true,
+  isProduction = false
+}
+```
+
+### Aggiornamenti NPC
+
+Mira deve comprare:
+- Plank
+- Beam
+- Crate
+
+Prezzo e reputazione:
+- Plank: basso valore, rep base
+- Beam: valore medio, rep media
+- Crate: valore alto, rep alta
+
+Se il sistema ha ancora un solo `baseReputationReward`, aggiungi supporto opzionale:
+
+```lua
+itemRewards = {
+  Plank = { money = 15, reputation = 5 },
+  Beam = { money = 25, reputation = 8 },
+  Crate = { money = 45, reputation = 12 }
+}
+```
+
+### Specifiche
+
+1. **Input multiplo semplice:** CrateAssembler richiede 2 Beam prima di craftare
+2. **No recipe multiple:** La macchina ha una sola recipe
+3. **Output buffer:** Se il conveyor in uscita è bloccato, la macchina si ferma
+4. **Fallback modello:** Se manca modello `.rbxm`, crea base + cubo/crate visuale via script
+5. **Salvataggio:** CrateAssembler viene salvato come gli altri placeable item
+
+### Cosa Verificare
+- [ ] CrateAssembler si compra e piazza
+- [ ] Accetta solo Beam
+- [ ] Richiede 2 Beam per produrre 1 Crate
+- [ ] Crate viene emesso sul conveyor
+- [ ] Mira vende Crate con Money + Reputation maggiori di Beam
+- [ ] Crate non entra nell'inventario player
+- [ ] Nessuna duplicazione se output è bloccato
+
+### File Modificati
+- 🔄 **Modificato:** `src/ReplicatedStorage/Shared/Definitions.luau`
+- 🔄 **Modificato:** `src/ServerScriptService/MachineSystem.luau`
+- 🔄 **Modificato:** `src/ServerScriptService/SellSystem.luau`
+- 🔄 **Modificato:** `src/ServerScriptService/InventoryManager.server.luau`
+- 🔄 **Modificato:** `src/StarterPlayer/StarterPlayerScripts/ProductionItems.lua`
+
+---
+
+## 📝 PROMPT 22 - Completare Linea Pietra con Quarry e Brick Kiln
+
+### Contesto
+Bront deve diventare un NPC realmente giocabile, non solo una tab nella UI. La linea pietra deve permettere al player di produrre e vendere materiali da costruzione con un loop completo.
+
+Il GDD prevede:
+- Stone
+- Stone Block
+- Brick
+- Bront Sell Zone
+
+### Obiettivo
+Aggiungere **Quarry** e **BrickKiln**, completando la linea:
+Quarry -> StoneCutter -> BrickKiln -> Bront Sell Zone.
+
+### Dettagli Tecnici
+
+**File da modificare:**
+- `src/ReplicatedStorage/Shared/Definitions.luau`
+- `src/ServerScriptService/MachineSystem.luau`
+- `src/ServerScriptService/SellSystem.luau`
+- `src/ServerScriptService/InventoryManager.server.luau`
+- `src/StarterPlayer/StarterPlayerScripts/ProductionItems.lua`
+
+### Nuovi / Confermati Production Items
+
+```lua
+Stone = {
+  name = "Stone",
+  icon = "🪨",
+  category = "stone",
+  value = 12,
+  rarity = "common",
+  isProduction = true
+}
+
+StoneBlock = {
+  name = "StoneBlock",
+  icon = "🧱",
+  category = "stone",
+  value = 24,
+  rarity = "common",
+  isProduction = true
+}
+
+Brick = {
+  name = "Brick",
+  icon = "🧱",
+  category = "stone",
+  value = 42,
+  rarity = "common",
+  isProduction = true
+}
+```
+
+### Nuove Macchine
+
+```lua
+Quarry = {
+  name = "Quarry",
+  type = "producer",
+  outputItem = "Stone",
+  outputRate = 1,
+  outputFrequency = 6,
+  powerRequired = 14
+}
+
+BrickKiln = {
+  name = "BrickKiln",
+  type = "processor",
+  inputItem = "StoneBlock",
+  inputCount = 2,
+  outputItem = "Brick",
+  processingTime = 7,
+  inputQueueSize = 4,
+  powerRequired = 20
+}
+```
+
+### Shop Items
+
+```lua
+Quarry = {
+  name = "Quarry",
+  icon = "⛏️",
+  category = "machine",
+  cost = 220,
+  type = "producer",
+  isMachine = true,
+  isProduction = false
+}
+
+BrickKiln = {
+  name = "BrickKiln",
+  icon = "🔥",
+  category = "machine",
+  cost = 420,
+  type = "processor",
+  isMachine = true,
+  isProduction = false
+}
+```
+
+### Aggiornamenti Bront
+
+Bront deve comprare:
+- StoneBlock
+- Brick
+
+Regole:
+- Stone grezzo non viene venduto a Bront nel loop MVP
+- Se Stone arriva nella BrontSellZone, viene distrutto con feedback "Bront wants refined stone"
+- Brick deve dare più Money e Reputation di StoneBlock
+
+### Specifiche
+
+1. **Compatibilità:** StoneCutter già esistente deve trasformare Stone -> StoneBlock
+2. **Producer separato:** Quarry produce Stone, non IronOre
+3. **MineEntrance legacy:** Se esiste già `MineEntrance`, non romperlo; può restare alias/vecchio producer ferro fino al prompt ferro
+4. **Fallback modello:** Quarry e BrickKiln devono avere modelli base se mancano asset
+5. **Power:** La linea pietra deve consumare abbastanza energia da spingere il player verso generatori
+
+### Cosa Verificare
+- [ ] Quarry produce Stone
+- [ ] StoneCutter trasforma Stone in StoneBlock
+- [ ] BrickKiln richiede 2 StoneBlock
+- [ ] BrickKiln produce Brick
+- [ ] Bront compra StoneBlock e Brick
+- [ ] Bront non compra Stone grezzo
+- [ ] La linea pietra salva e ricarica correttamente
+
+### File Modificati
+- 🔄 **Modificato:** `src/ReplicatedStorage/Shared/Definitions.luau`
+- 🔄 **Modificato:** `src/ServerScriptService/MachineSystem.luau`
+- 🔄 **Modificato:** `src/ServerScriptService/SellSystem.luau`
+- 🔄 **Modificato:** `src/ServerScriptService/InventoryManager.server.luau`
+- 🔄 **Modificato:** `src/StarterPlayer/StarterPlayerScripts/ProductionItems.lua`
+
+---
+
+## 📝 PROMPT 23 - Completare Linea Ferro con Plate Press e Gear Maker
+
+### Contesto
+Elrik deve diventare il terzo NPC produttivo completo. Il ferro serve anche come ponte verso generatori migliori e componenti industriali, quindi la linea deve produrre almeno:
+- Iron Ingot
+- Iron Plate
+- Gear
+
+### Obiettivo
+Aggiungere **IronMine**, **PlatePress** e **GearMaker**, completando la linea:
+IronMine -> Furnace -> PlatePress -> GearMaker -> Elrik Sell Zone.
+
+### Dettagli Tecnici
+
+**File da modificare:**
+- `src/ReplicatedStorage/Shared/Definitions.luau`
+- `src/ServerScriptService/MachineSystem.luau`
+- `src/ServerScriptService/SellSystem.luau`
+- `src/ServerScriptService/InventoryManager.server.luau`
+- `src/StarterPlayer/StarterPlayerScripts/ProductionItems.lua`
+
+### Production Items
+
+```lua
+IronOre = {
+  name = "IronOre",
+  icon = "⛓️",
+  category = "iron",
+  value = 20,
+  rarity = "common",
+  isProduction = true
+}
+
+IronIngot = {
+  name = "IronIngot",
+  icon = "⚙️",
+  category = "iron",
+  value = 35,
+  rarity = "common",
+  isProduction = true
+}
+
+IronPlate = {
+  name = "IronPlate",
+  icon = "▣",
+  category = "iron",
+  value = 55,
+  rarity = "common",
+  isProduction = true
+}
+
+Gear = {
+  name = "Gear",
+  icon = "⚙️",
+  category = "iron",
+  value = 85,
+  rarity = "common",
+  isProduction = true
+}
+```
+
+### Macchine
+
+```lua
+IronMine = {
+  name = "IronMine",
+  type = "producer",
+  outputItem = "IronOre",
+  outputRate = 1,
+  outputFrequency = 7,
+  powerRequired = 18
+}
+
+PlatePress = {
+  name = "PlatePress",
+  type = "processor",
+  inputItem = "IronIngot",
+  inputCount = 1,
+  outputItem = "IronPlate",
+  processingTime = 6,
+  inputQueueSize = 3,
+  powerRequired = 22
+}
+
+GearMaker = {
+  name = "GearMaker",
+  type = "processor",
+  inputItem = "IronPlate",
+  inputCount = 2,
+  outputItem = "Gear",
+  processingTime = 8,
+  inputQueueSize = 4,
+  powerRequired = 28
+}
+```
+
+### Shop Items
+
+Aggiungi placeable item per:
+- IronMine
+- PlatePress
+- GearMaker
+
+Costi consigliati:
+- IronMine: 300
+- PlatePress: 500
+- GearMaker: 750
+
+### Aggiornamenti Elrik
+
+Elrik deve comprare:
+- IronIngot
+- IronPlate
+- Gear
+
+Regole:
+- IronOre non viene comprato
+- Gear dà ricompensa alta
+- Gear deve contribuire ai requisiti del Sindaco
+
+### Specifiche
+
+1. **MineEntrance legacy:** Se `MineEntrance` produce già IronOre, mantienilo compatibile ma rendi `IronMine` il nome standard per il futuro
+2. **Power check:** La linea ferro deve essere impossibile da espandere molto senza generatori
+3. **No componenti combinati ancora:** HouseKit/WorkshopKit/GeneratorKit arrivano dopo
+4. **UI:** NPCProgressUI deve mostrare IronPlate e Gear nei dati di Elrik
+5. **Salvataggio:** I nuovi placeable si salvano come le altre macchine
+
+### Cosa Verificare
+- [ ] IronMine produce IronOre
+- [ ] Furnace produce IronIngot
+- [ ] PlatePress produce IronPlate
+- [ ] GearMaker richiede 2 IronPlate
+- [ ] GearMaker produce Gear
+- [ ] Elrik compra IronIngot, IronPlate e Gear
+- [ ] IronOre non viene venduto direttamente
+- [ ] Nessun item ferro resta bloccato infinito
+
+### File Modificati
+- 🔄 **Modificato:** `src/ReplicatedStorage/Shared/Definitions.luau`
+- 🔄 **Modificato:** `src/ServerScriptService/MachineSystem.luau`
+- 🔄 **Modificato:** `src/ServerScriptService/SellSystem.luau`
+- 🔄 **Modificato:** `src/ServerScriptService/InventoryManager.server.luau`
+- 🔄 **Modificato:** `src/StarterPlayer/StarterPlayerScripts/ProductionItems.lua`
+
+---
+
+## 📝 PROMPT 24 - Unlock Progressivi via Reputazione NPC
+
+### Contesto
+Ora ci sono molte macchine nello shop. Se tutto è disponibile subito, il player viene sommerso e salta la progressione. Il GDD richiede unlock progressivi tramite reputazione NPC.
+
+Il server deve decidere cosa è sbloccato. Il client può solo mostrare stato locked/unlocked.
+
+### Obiettivo
+Implementare un sistema di unlock automatici basato su:
+- Reputazione Mira
+- Reputazione Bront
+- Reputazione Elrik
+- Eventuali requisiti Town Prestige
+
+### Dettagli Tecnici
+
+**File da modificare:**
+- `src/ReplicatedStorage/Shared/Definitions.luau`
+- `src/ServerScriptService/PlayerProgress.luau`
+- `src/ServerScriptService/InventoryManager.server.luau`
+- `src/StarterGui/ShopUI.lua`
+- `src/StarterPlayer/StarterPlayerScripts/ShopClient.client.luau`
+- `src/StarterPlayer/StarterPlayerScripts/NPCProgressUI.client.luau`
+
+### Data Model Unlock
+
+Aggiungi in PlayerProgress:
+
+```lua
+unlocks = {
+  machines = {
+    TreeFarm = true,
+    Sawmill = true,
+    Conveyor = true,
+    CurvedConveyor = true,
+    Splitter = true,
+    Merger = true,
+    SmallGenerator = true,
+    MiraSellZone = true
+  },
+  discoveredItems = {}
+}
+```
+
+### Definitions Unlock Requirements
+
+Ogni shop item può avere:
+
+```lua
+unlock = {
+  npc = "Mira",
+  reputation = 25,
+  townStage = 1
+}
+```
+
+Schema consigliato:
+
+```lua
+BeamCutter = { unlock = { npc = "Mira", reputation = 15 } }
+CrateAssembler = { unlock = { npc = "Mira", reputation = 40 } }
+
+Quarry = { unlock = { npc = "Mira", reputation = 30 } }
+StoneCutter = { unlock = { npc = "Bront", reputation = 10 } }
+BrickKiln = { unlock = { npc = "Bront", reputation = 35 } }
+BrontSellZone = { unlock = { npc = "Mira", reputation = 30 } }
+
+IronMine = { unlock = { npc = "Bront", reputation = 30 } }
+Furnace = { unlock = { npc = "Bront", reputation = 30 } }
+PlatePress = { unlock = { npc = "Elrik", reputation = 20 } }
+GearMaker = { unlock = { npc = "Elrik", reputation = 45 } }
+ElrikSellZone = { unlock = { npc = "Bront", reputation = 30 } }
+```
+
+### Server Rules
+
+1. **On reputation change:** Ricalcola unlock disponibili
+2. **On purchase:** Rifiuta acquisto di item locked
+3. **On placement:** Rifiuta piazzamento di item locked anche se il client prova a spoofare
+4. **On load:** Ricostruisci unlock da reputazione + dati salvati
+5. **No downgrade:** Se una definizione cambia, non rimuovere item già posseduti/piazzati dal player
+
+### Client UI
+
+Shop:
+- Mostra item locked con overlay scuro
+- Mostra requisito: `Mira Rep 40`
+- Il bottone Buy è disabilitato se locked
+
+NPCProgressUI:
+- Mostra rewards per livello reputazione
+- Evidenzia reward appena sbloccati
+
+### Cosa Verificare
+- [ ] Nuovo player vede solo item starter acquistabili
+- [ ] BeamCutter si sblocca con reputazione Mira
+- [ ] CrateAssembler si sblocca dopo BeamCutter
+- [ ] Bront ed Elrik entrano progressivamente nel loop
+- [ ] Client spoof non può comprare item locked
+- [ ] Unlock persistono dopo rejoin
+- [ ] Item già piazzati non spariscono se cambiano requisiti
+
+### File Modificati
+- 🔄 **Modificato:** `src/ReplicatedStorage/Shared/Definitions.luau`
+- 🔄 **Modificato:** `src/ServerScriptService/PlayerProgress.luau`
+- 🔄 **Modificato:** `src/ServerScriptService/InventoryManager.server.luau`
+- 🔄 **Modificato:** `src/StarterGui/ShopUI.lua`
+- 🔄 **Modificato:** `src/StarterPlayer/StarterPlayerScripts/ShopClient.client.luau`
+- 🔄 **Modificato:** `src/StarterPlayer/StarterPlayerScripts/NPCProgressUI.client.luau`
+
+---
+
+## 📝 PROMPT 25 - Town Prestige Stage 2 e Ricompense Reali
+
+### Contesto
+Il Sindaco esiste già nei dati/UI base, ma il Town Prestige deve diventare una progressione reale. Stage 2 deve dare una ricompensa concreta e visibile, senza resettare la fabbrica.
+
+Il GDD dice chiaramente: Town Prestige **non è un rebirth**.
+
+### Obiettivo
+Implementare il passaggio da Stage 1 **Outpost** a Stage 2 **Village**, con requisiti, claim server-authoritative e reward reali.
+
+### Dettagli Tecnici
+
+**File da modificare:**
+- `src/ReplicatedStorage/Shared/Definitions.luau`
+- `src/ServerScriptService/PlayerProgress.luau`
+- `src/ServerScriptService/PowerSystem.luau`
+- `src/ServerScriptService/InventoryManager.server.luau`
+- `src/StarterPlayer/StarterPlayerScripts/NPCProgressUI.client.luau`
+
+### Stage Data
+
+Aggiorna `TOWN_PRESTIGE_STAGES`:
+
+```lua
+{
+  stage = 1,
+  name = "Outpost",
+  requirements = {},
+  rewards = {
+    basePowerCapacity = 50
+  }
+},
+{
+  stage = 2,
+  name = "Village",
+  requirements = {
+    npcReputation = {
+      Mira = 50,
+      Bront = 20
+    },
+    mayorContribution = {
+      Plank = 25,
+      Beam = 10,
+      StoneBlock = 10
+    },
+    totalSold = 75
+  },
+  rewards = {
+    powerCapacityBonus = 50,
+    unlocks = { "Windmill", "VillageLamp", "VillageBanner" },
+    townVisualStage = 2
+  }
+}
+```
+
+### Nuove Ricompense
+
+Aggiungi almeno:
+
+```lua
+Windmill = {
+  name = "Windmill",
+  icon = "🌬️",
+  category = "power",
+  cost = 600,
+  type = "generator",
+  powerProvided = 40,
+  unlock = { townStage = 2 },
+  isMachine = false,
+  isProduction = false
+}
+```
+
+Decorazioni ricompensa:
+- VillageLamp
+- VillageBanner
+
+### Server Rules
+
+1. **CanAdvanceTownStage(player):** controlla requisiti da PlayerProgress
+2. **AdvanceTownStage(player):** applica stage + reward una sola volta
+3. **Power:** Stage 2 aggiunge `powerCapacityBonus`
+4. **Unlock:** Reward item vengono sbloccati nello shop/inventory rules
+5. **Save:** Stage e reward claimed vengono salvati
+
+### Visual Stage
+
+Se il plot ha municipio o elementi città:
+- Cambia colore/label del municipio a "Village"
+- Aggiungi banner/lampioni semplici
+- Se non esiste modello, usa fallback via script
+
+### Cosa Verificare
+- [ ] Requisiti Stage 2 leggono dati reali
+- [ ] Il player non può avanzare se manca requisito
+- [ ] Il player può avanzare quando i requisiti sono completi
+- [ ] Stage 2 aumenta Power Capacity
+- [ ] Windmill si sblocca solo a Stage 2
+- [ ] Stage 2 resta dopo rejoin
+- [ ] Advance non può essere reclamato due volte
+
+### File Modificati
+- 🔄 **Modificato:** `src/ReplicatedStorage/Shared/Definitions.luau`
+- 🔄 **Modificato:** `src/ServerScriptService/PlayerProgress.luau`
+- 🔄 **Modificato:** `src/ServerScriptService/PowerSystem.luau`
+- 🔄 **Modificato:** `src/ServerScriptService/InventoryManager.server.luau`
+- 🔄 **Modificato:** `src/StarterPlayer/StarterPlayerScripts/NPCProgressUI.client.luau`
+
+---
+
+## 📝 PROMPT 26 - Mayor UI Completa con Requisiti, Reward e Claim
+
+### Contesto
+Il Town Prestige ora ha requisiti e reward reali, ma il player deve capire chiaramente cosa manca per avanzare. Il Sindaco deve diventare un menu centrale della progressione MVP.
+
+### Obiettivo
+Creare una UI Sindaco più completa con:
+- Stage attuale
+- Prossimo stage
+- Requisiti dettagliati
+- Reward
+- Pulsante Claim/Advance
+
+### Dettagli Tecnici
+
+**File da modificare:**
+- `src/StarterPlayer/StarterPlayerScripts/NPCProgressUI.client.luau`
+- `src/ServerScriptService/PlayerProgress.luau`
+- `src/ServerScriptService/InventoryManager.server.luau`
+- `src/ReplicatedStorage/Shared/Definitions.luau`
+
+### UI Layout
+
+Menu Sindaco con tab:
+
+```text
+Sindaco
+[Overview] [Requirements] [Rewards]
+
+Stage 1: Outpost
+Next: Stage 2 Village
+
+Progress:
+Mira Reputation     42 / 50
+Bront Reputation    12 / 20
+Plank Delivered     25 / 25
+Beam Delivered       8 / 10
+StoneBlock Delivered 4 / 10
+
+Rewards:
++50 Power Capacity
+Unlock Windmill
+Village decorations
+
+[Advance Town] -- disabled until ready
+```
+
+### Server Remote
+
+Aggiungi RemoteFunction/RemoteEvent sicuri:
+
+```lua
+GetMayorSnapshot(player)
+RequestTownAdvance(player)
+```
+
+Snapshot deve includere:
+- stage corrente
+- prossimo stage
+- requisiti normalizzati
+- progress attuale
+- reward
+- `canAdvance`
+
+### Regole UI
+
+1. Il client non calcola se può avanzare, mostra `canAdvance` dal server
+2. Ogni requisito ha progress bar o checkmark
+3. Se non esiste prossimo stage, mostra "Max stage for MVP"
+4. Il claim mostra feedback chiaro:
+   - Success
+   - Missing requirements
+   - Already claimed
+5. Deve funzionare su mouse, touch e gamepad basic navigation
+
+### Cosa Verificare
+- [ ] UI Sindaco mostra Stage 1 e prossimo Stage 2
+- [ ] Ogni requisito mostra progress corretto
+- [ ] Reward Stage 2 sono visibili prima del claim
+- [ ] Pulsante Advance si abilita solo quando server dice `canAdvance`
+- [ ] Claim aggiorna UI senza rejoin
+- [ ] Client spoof del Remote non salta requisiti
+- [ ] UI non rompe i menu NPC esistenti
+
+### File Modificati
+- 🔄 **Modificato:** `src/StarterPlayer/StarterPlayerScripts/NPCProgressUI.client.luau`
+- 🔄 **Modificato:** `src/ServerScriptService/PlayerProgress.luau`
+- 🔄 **Modificato:** `src/ServerScriptService/InventoryManager.server.luau`
+- 🔄 **Modificato:** `src/ReplicatedStorage/Shared/Definitions.luau`
+
+---
+
+## 📝 PROMPT 27 - Machine UI Interattiva e Overhead Status
+
+### Contesto
+Le macchine craftano, ma il player deve capire cosa sta succedendo senza guardare il codice. Il GDD richiede una Machine UI con recipe, input, output buffer, progress e power.
+
+Questo prompt deve rendere le macchine leggibili e interattive, senza introdurre ancora recipe multiple avanzate.
+
+### Obiettivo
+Creare UI macchina:
+- Overhead status quando il player è vicino
+- Interazione `E` / tap / gamepad per aprire pannello
+- Snapshot server-authoritative dello stato macchina
+
+### Dettagli Tecnici
+
+**File da creare:**
+- `src/StarterPlayer/StarterPlayerScripts/MachineUI.client.luau`
+
+**File da modificare:**
+- `src/ServerScriptService/MachineSystem.luau`
+- `src/ServerScriptService/InventoryManager.server.luau`
+- `src/ReplicatedStorage/Shared/Definitions.luau`
+
+### Machine State Snapshot
+
+Il server deve poter restituire:
+
+```lua
+{
+  machineId = "playerId_cellX_cellZ",
+  itemName = "CrateAssembler",
+  displayName = "Crate Assembler",
+  recipe = {
+    inputItem = "Beam",
+    inputCount = 2,
+    outputItem = "Crate",
+    processingTime = 6
+  },
+  inputStorage = {
+    Beam = 1
+  },
+  outputBuffer = {
+    Crate = 0
+  },
+  craftProgress = 0.45,
+  isPowered = true,
+  isBlocked = false
+}
+```
+
+### Overhead UI
+
+Mostra sopra ogni macchina:
+- Nome macchina
+- Input richiesto: `Beam 1/2`
+- Output: `Crate`
+- Barra progresso
+- Icona power se non alimentata
+- Icona blocco se output bloccato
+
+Regole:
+- Visibile solo entro distanza ragionevole
+- Non deve coprire troppo lo schermo
+- Aggiornamento leggero, non ogni frame se non serve
+
+### Interfaccia Macchina
+
+Pannello:
+- Modello/nome macchina
+- Recipe corrente
+- Input storage
+- Output buffer
+- Craft progress
+- Stato Power
+- Stato Output
+
+Per ora:
+- Recipe non cambiabile se la macchina contiene input/output
+- Se esiste una sola recipe, mostra solo quella
+
+### Server Authority
+
+1. Il client chiede snapshot
+2. Il server verifica owner e plot
+3. Il client non può svuotare storage o cambiare output
+4. Nessuna modifica a soldi/reputazione passa dalla Machine UI
+
+### Cosa Verificare
+- [ ] Avvicinandosi a una macchina compare overhead UI
+- [ ] L'overhead mostra input/progress/output corretti
+- [ ] Premendo E si apre pannello macchina
+- [ ] Touch apre pannello senza tastiera
+- [ ] Gamepad può selezionare/chiudere pannello
+- [ ] Player non può aprire macchine di altri plot
+- [ ] UI non causa lag con 30+ macchine
+
+### File Modificati
+- ✅ **Nuovo:** `src/StarterPlayer/StarterPlayerScripts/MachineUI.client.luau`
+- 🔄 **Modificato:** `src/ServerScriptService/MachineSystem.luau`
+- 🔄 **Modificato:** `src/ServerScriptService/InventoryManager.server.luau`
+- 🔄 **Modificato:** `src/ReplicatedStorage/Shared/Definitions.luau`
+
+---
+
+## 📝 PROMPT 28 - Almanacco Base per Item, Macchine, NPC e Prestige
+
+### Contesto
+Con tre linee produttive, unlock e Town Prestige, il player ha bisogno di una guida interna. Il GDD prevede un Almanacco semplice come should-have. Questo è importante per la deadline perché riduce confusione senza aggiungere nuove meccaniche.
+
+### Obiettivo
+Creare un Almanacco base consultabile dalla UI, con informazioni scoperte progressivamente.
+
+### Dettagli Tecnici
+
+**File da creare:**
+- `src/StarterPlayer/StarterPlayerScripts/AlmanacUI.client.luau`
+
+**File da modificare:**
+- `src/ServerScriptService/PlayerProgress.luau`
+- `src/ServerScriptService/SellSystem.luau`
+- `src/ServerScriptService/InventoryManager.server.luau`
+- `src/ReplicatedStorage/Shared/Definitions.luau`
+
+### Data Model
+
+Aggiungi in PlayerProgress:
+
+```lua
+almanac = {
+  discoveredItems = {},
+  discoveredMachines = {},
+  discoveredNPCs = {
+    Mira = true,
+    Mayor = true
+  },
+  viewedEntries = {}
+}
+```
+
+### Discovery Rules
+
+Segna come scoperto quando:
+- Production item viene prodotto
+- Production item viene venduto
+- Macchina viene comprata o sbloccata
+- NPC viene sbloccato o visitato
+- Town stage viene raggiunto
+
+### UI Tabs
+
+```text
+[Items] [Machines] [NPC] [Town]
+```
+
+Items:
+- Nome
+- Categoria
+- Valore base
+- Chi lo compra
+- Da quale macchina viene prodotto
+
+Machines:
+- Nome
+- Input
+- Output
+- Power
+- Unlock requirement
+
+NPC:
+- Cosa compra
+- Reputation rewards
+- Unlock importanti
+
+Town:
+- Stage disponibili MVP
+- Requisiti
+- Reward
+
+### Locked Entries
+
+Prima della scoperta:
+- Mostra `???`
+- Mostra categoria se utile
+- Non rivelare tutto l'albero produttivo troppo presto
+
+### Specifiche
+
+1. **Read-only:** Almanacco non modifica gameplay
+2. **Server snapshot:** Il client riceve solo dati che può vedere/scoprire
+3. **No grind blocker:** Non serve aprire l'Almanacco per progredire
+4. **Mobile:** Tab grandi abbastanza per touch
+5. **Gamepad:** Navigazione base tra tab e lista
+
+### Cosa Verificare
+- [ ] Pulsante Almanacco apre/chiude UI
+- [ ] Mira e Sindaco sono visibili da nuovo player
+- [ ] Crate appare dopo produzione/vendita/scoperta
+- [ ] Machine locked mostra requisito senza rompere layout
+- [ ] Almanacco persiste dopo rejoin
+- [ ] UI resta leggibile su mobile
+- [ ] Il client non vede dati locked non autorizzati
+
+### File Modificati
+- ✅ **Nuovo:** `src/StarterPlayer/StarterPlayerScripts/AlmanacUI.client.luau`
+- 🔄 **Modificato:** `src/ServerScriptService/PlayerProgress.luau`
+- 🔄 **Modificato:** `src/ServerScriptService/SellSystem.luau`
+- 🔄 **Modificato:** `src/ServerScriptService/InventoryManager.server.luau`
+- 🔄 **Modificato:** `src/ReplicatedStorage/Shared/Definitions.luau`
+
+---
+
+## 📝 PROMPT 29 - Performance Test e Cleanup Item Attivi
+
+### Contesto
+La deadline richiede una build pubblicabile. Il rischio più grande ora è che gli item fisici/conveyor causino lag, accumuli infiniti o duplicazioni. Il GDD dice che 6 player devono giocare senza lag grave e che gli item non devono accumularsi.
+
+### Obiettivo
+Aggiungere strumenti di test e hardening performance per active production item, conveyor e macchine.
+
+### Dettagli Tecnici
+
+**File da creare:**
+- `src/ServerScriptService/PerformanceTest.server.luau`
+
+**File da modificare:**
+- `src/ServerScriptService/ConveyorSystem.luau`
+- `src/ServerScriptService/MachineSystem.luau`
+- `src/ServerScriptService/SellSystem.luau`
+- `src/ServerScriptService/InventoryManager.server.luau`
+
+### Metriche da Tracciare
+
+Per plot:
+
+```lua
+{
+  activeItems = 0,
+  activeMachines = 0,
+  itemsSpawnedPerMinute = 0,
+  itemsDestroyedPerMinute = 0,
+  itemsSoldPerMinute = 0,
+  averageItemLifetime = 0,
+  blockedMachines = 0,
+  lastCleanupAt = 0
+}
+```
+
+### Limiti Runtime
+
+Conferma/implementa:
+- Max 100 active production item per plot
+- Max item lifetime 60 sec
+- Max stuck time 2 sec
+- Max sell events/sec per player
+- Cleanup production item al logout
+- Cleanup item orphan senza owner/plot
+
+### Test Harness
+
+`PerformanceTest.server.luau` deve poter essere abilitato solo in Studio/dev:
+
+```lua
+local ENABLE_PERF_TEST = RunService:IsStudio()
+```
+
+Funzioni:
+- Spawn controllato di item test
+- Simulazione 6 plot con flusso alto
+- Log metriche ogni 10 secondi
+- Warning se un plot supera soglie
+
+### Ottimizzazioni
+
+1. Evita loop pesanti per ogni frame se possibile
+2. Raggruppa update item in heartbeat controllato
+3. Non fare `GetDescendants()` continuo sui modelli
+4. Cacha riferimenti macchina/conveyor per cella
+5. Distruggi item invalidi in modo deterministico
+
+### Cosa Verificare
+- [ ] Con 100 item su un plot il gioco resta stabile
+- [ ] Con 6 plot simulati non ci sono errori server
+- [ ] Item oltre lifetime vengono rimossi
+- [ ] Item stuck vengono rimossi
+- [ ] Logout rimuove item del player
+- [ ] Metriche mostrano active item corretti
+- [ ] Il test non gira in produzione se disabilitato
+
+### File Modificati
+- ✅ **Nuovo:** `src/ServerScriptService/PerformanceTest.server.luau`
+- 🔄 **Modificato:** `src/ServerScriptService/ConveyorSystem.luau`
+- 🔄 **Modificato:** `src/ServerScriptService/MachineSystem.luau`
+- 🔄 **Modificato:** `src/ServerScriptService/SellSystem.luau`
+- 🔄 **Modificato:** `src/ServerScriptService/InventoryManager.server.luau`
+
+---
+
+## 📝 PROMPT 30 - Polish Mobile, Touch e Input Gamepad
+
+### Contesto
+Il gioco deve essere pubblicabile su Roblox, quindi mouse/tastiera non basta. Le UI principali e il placement devono funzionare anche su mobile e con gamepad, almeno a livello MVP.
+
+Questo prompt non aggiunge nuove feature produttive: serve a rendere giocabile quello che già esiste.
+
+### Obiettivo
+Rifinire input e UI per:
+- Mobile/touch
+- Gamepad
+- Schermi piccoli
+- Safe area
+- Placement, rotate, delete, shop, NPC, Mayor, Machine UI, Almanacco
+
+### Dettagli Tecnici
+
+**File da modificare:**
+- `src/StarterPlayer/StarterPlayerScripts/InventoryClient.client.luau`
+- `src/StarterPlayer/StarterPlayerScripts/ShopClient.client.luau`
+- `src/StarterPlayer/StarterPlayerScripts/NPCProgressUI.client.luau`
+- `src/StarterPlayer/StarterPlayerScripts/MachineUI.client.luau`
+- `src/StarterPlayer/StarterPlayerScripts/AlmanacUI.client.luau`
+- `src/StarterPlayer/StarterPlayerScripts/TutorialClient.client.luau`
+- `src/StarterGui/ShopUI.lua`
+
+### Mobile Placement Controls
+
+Aggiungi controlli touch visibili solo su mobile:
+
+```text
+[Rotate] [Confirm] [Cancel] [Delete]
+```
+
+Regole:
+- Bottoni grandi e distanziati
+- Non coprire hotbar/money/power
+- Conferma placement con tap su bottone, non solo tap nel mondo
+- Delete mode richiede conferma
+
+### Gamepad Controls
+
+Mapping consigliato:
+
+```text
+A = Confirm / Buy / Open
+B = Cancel / Close
+X = Rotate
+Y = Toggle Inventory/Shop
+LB/RB = Cambia tab
+DPad = Navigazione UI
+```
+
+### UI Scaling
+
+Controllare:
+- HUD Money/Diamond/Power non si sovrappone
+- Objective Tracker non copre shop
+- NPC menu leggibile su mobile
+- Mayor UI scrollabile
+- Machine UI chiudibile sempre
+- Almanacco scrollabile con touch/gamepad
+
+### Accessibilità MVP
+
+1. Tutti i menu hanno bottone close chiaro
+2. I bottoni disabilitati hanno motivazione
+3. Errori placement/power/unlock sono leggibili
+4. Nessun testo importante esce dai frame
+5. Nessuna UI blocca permanentemente input
+
+### Test Manuale
+
+Creare una checklist interna o commentata:
+
+```text
+Mobile:
+- Compra TreeFarm
+- Piazza e ruota
+- Compra conveyor
+- Apri shop
+- Apri NPC
+- Apri Mayor
+- Apri Machine UI
+
+Gamepad:
+- Naviga shop
+- Compra item
+- Piazza/ruota/cancella
+- Apri/chiudi menu
+```
+
+### Cosa Verificare
+- [ ] Placement funziona su touch
+- [ ] Rotate funziona su touch
+- [ ] Delete mode funziona su touch con conferma
+- [ ] Shop navigabile con gamepad
+- [ ] NPC/Mayor/Machine/Almanac UI chiudibili con B
+- [ ] HUD non si sovrappone su schermi piccoli
+- [ ] Tutorial resta leggibile su mobile
+- [ ] Nessun input client bypassa validazioni server
+
+### File Modificati
+- 🔄 **Modificato:** `src/StarterPlayer/StarterPlayerScripts/InventoryClient.client.luau`
+- 🔄 **Modificato:** `src/StarterPlayer/StarterPlayerScripts/ShopClient.client.luau`
+- 🔄 **Modificato:** `src/StarterPlayer/StarterPlayerScripts/NPCProgressUI.client.luau`
+- 🔄 **Modificato:** `src/StarterPlayer/StarterPlayerScripts/MachineUI.client.luau`
+- 🔄 **Modificato:** `src/StarterPlayer/StarterPlayerScripts/AlmanacUI.client.luau`
+- 🔄 **Modificato:** `src/StarterPlayer/StarterPlayerScripts/TutorialClient.client.luau`
+- 🔄 **Modificato:** `src/StarterGui/ShopUI.lua`
+
+---
+
+# ✅ Prompt 21-30 Completati!
+
+A questo punto hai:
+- ✅ Linea Legno completa con Crate
+- ✅ Linea Pietra completa con Brick
+- ✅ Linea Ferro completa con Plate e Gear
+- ✅ Unlock progressivi basati su reputazione NPC
+- ✅ Town Prestige Stage 2 con ricompense reali
+- ✅ Mayor UI con requisiti e claim
+- ✅ Machine UI interattiva
+- ✅ Almanacco base
+- ✅ Performance test per active item
+- ✅ Polish mobile e gamepad
+
+**Il gioco ora è vicino alla vertical slice MVP.** Player può:
+1. Seguire tre linee produttive complete
+2. Sbloccare macchine tramite reputazione
+3. Avanzare il Town Prestige senza reset
+4. Capire macchine, NPC e requisiti dal gioco
+5. Giocare meglio su mobile e gamepad
+6. Restare entro limiti performance controllati
+
+---
+
 # 🟠 Continua con...
 
-Prossimi 10 prompt (21-30) dovranno coprire:
-- Linea Legno completa con Crate Assembler
-- Linea Pietra completa con Brick Kiln
-- Linea Ferro completa con Plate Press e Gear Maker
-- Unlock progressivi via reputazione NPC
-- Town Prestige stage 2 e ricompense reali
-- Mayor UI più completa
-- Machine UI interattiva
-- Almanacco base
-- Test performance item attivi
-- Polish mobile e input gamepad
+Prossimi 10 prompt (31-40) dovranno coprire:
+- Tutorial completo fino a Bront, Elrik, Power e Sindaco
+- Bilanciamento Money/Reputation/Power per 60-120 minuti
+- Kit combinati per Sindaco: House Kit, Workshop Kit, Generator Kit
+- Visual stage città più riconoscibile
+- Save/load QA con fallback corruzione dati
+- Leaderboard base
+- Diamond reward rare non bloccanti
+- Bugfix pass conveyor/machine/sell zone
+- Thumbnail, descrizione e metadata Roblox
+- Release checklist per publish candidate
