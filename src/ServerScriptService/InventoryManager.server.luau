@@ -26,6 +26,9 @@ local playerDataStore = DataStoreService:GetDataStore("TycoonFactoryData")
 -- Fallback storage if DataStore fails
 local fallbackDataStore = {}
 local playerData = {}
+local PLOT_SAVE_VERSION = 2
+local MAX_DATASTORE_RETRIES = 3
+local DATASTORE_RETRY_DELAY = 1
 
 -- Get grid unit size (now fixed)
 local function getGridUnitSize()
@@ -54,6 +57,10 @@ end
 
 local function roundToNearestCell(value)
     return math.floor(value + 0.5)
+end
+
+local function getPlayerDataKey(player)
+    return "Player_" .. player.UserId
 end
 
 local function getItemBaseFootprint(itemName)
@@ -1109,6 +1116,15 @@ local function countPlacedMachines(player)
     return count
 end
 
+local function isSaveablePlacedItem(itemName)
+    local itemDef = Definitions.GetItem(itemName)
+    if not itemDef or itemDef.isProduction == true then
+        return false
+    end
+
+    return itemDef.type ~= nil or itemDef.isMachine == true or itemDef.cost ~= nil
+end
+
 -- Function to get plot by ID
 local function getPlotById(plotId)
     local plotsFolder = workspace:FindFirstChild("Plots")
@@ -1309,77 +1325,249 @@ local function releasePlayerPlot(player)
     end
 end
 
--- Function to save player data to DataStore
-local function savePlayerData(player)
-    local data = playerData[player]
-    if not data then return end
-    data.inventory = normalizeInventory(data.inventory)
-    
-    local plotId = playerPlots[player.UserId]
-    if not plotId then return end
-    
-    -- Prepare save data
-    local saveData = {
-        inventory = data.inventory,
-        placedItems = {},
-        plotId = plotId
-    }
-    
-    -- Save placed items info
-    for _, item in ipairs(data.placedItems) do
-        if item and item.Parent then
-            table.insert(saveData.placedItems, {
-                itemName = item:GetAttribute("ItemName"),
-                position = {item:GetPivot().Position.X, item:GetPivot().Position.Y, item:GetPivot().Position.Z},
-                scaleFactor = item:GetAttribute("ScaleFactor") or 1,
-                cellsX = item:GetAttribute("CellsX") or 1,
-                cellsZ = item:GetAttribute("CellsZ") or 1,
-                cellX = item:GetAttribute("CellX"),
-                cellZ = item:GetAttribute("CellZ"),
-                rotation = normalizeRotation(item:GetAttribute("Rotation"))
-            })
+local function cloneInventoryForSave(inventory)
+    local normalized = normalizeInventory(inventory or DEFAULT_INVENTORY)
+    local cloned = {}
+
+    for _, item in ipairs(normalized) do
+        table.insert(cloned, {
+            itemName = item.itemName,
+            count = math.max(0, math.floor(tonumber(item.count) or 0)),
+        })
+    end
+
+    return cloned
+end
+
+local function getLegacyPosition(itemInfo)
+    local position = itemInfo and itemInfo.position
+    if typeof(position) == "Vector3" then
+        return position
+    end
+
+    if type(position) == "table" then
+        local x = tonumber(position[1] or position.x or position.X)
+        local y = tonumber(position[2] or position.y or position.Y)
+        local z = tonumber(position[3] or position.z or position.Z)
+        if x and y and z then
+            return Vector3.new(x, y, z)
         end
     end
-    
-    -- Save to DataStore
-    local success, err = pcall(function()
-        playerDataStore:SetAsync("Player_" .. player.UserId, saveData)
-    end)
-    
-    if success then
-        print("[SAVED] " .. player.Name .. " - " .. #saveData.placedItems .. " items on Plot " .. plotId)
-    else
-        warn("[ERROR] Failed to save data for " .. player.Name .. ": " .. tostring(err))
-        -- Fallback to memory storage
-        fallbackDataStore["Player_" .. player.UserId] = saveData
+
+    return nil
+end
+
+local function serializePlacedItem(item)
+    if not item or not item.Parent then
+        return nil
     end
+
+    local itemName = item:GetAttribute("ItemName")
+    if not isSaveablePlacedItem(itemName) then
+        return nil
+    end
+
+    local cellX = item:GetAttribute("CellX")
+    local cellZ = item:GetAttribute("CellZ")
+    if cellX == nil or cellZ == nil then
+        return nil
+    end
+
+    local itemDef = Definitions.GetItem(itemName)
+
+    return {
+        itemName = itemName,
+        cellX = math.floor(tonumber(cellX) or 0),
+        cellZ = math.floor(tonumber(cellZ) or 0),
+        rotation = normalizeRotation(item:GetAttribute("Rotation")),
+        scaleFactor = sanitizeScaleFactor(itemName, item:GetAttribute("ScaleFactor")),
+        cellsX = math.max(1, math.floor(tonumber(item:GetAttribute("CellsX")) or 1)),
+        cellsZ = math.max(1, math.floor(tonumber(item:GetAttribute("CellsZ")) or 1)),
+        npcName = item:GetAttribute("NPCName") or (itemDef and itemDef.npcName) or nil,
+    }
+end
+
+local function migrateSavedPlacedItem(itemInfo, plotId)
+    if type(itemInfo) ~= "table" then
+        return nil
+    end
+
+    local itemName = itemInfo.itemName or itemInfo.name
+    if not isSaveablePlacedItem(itemName) then
+        return nil
+    end
+
+    local rotation = normalizeRotation(itemInfo.rotation)
+    local cellsX = tonumber(itemInfo.cellsX)
+    local cellsZ = tonumber(itemInfo.cellsZ)
+    if not cellsX or not cellsZ then
+        cellsX, cellsZ = getRotatedFootprint(itemName, rotation)
+    end
+
+    cellsX = math.max(1, math.floor(cellsX))
+    cellsZ = math.max(1, math.floor(cellsZ))
+
+    local cellX = itemInfo.cellX
+    local cellZ = itemInfo.cellZ
+    if cellX == nil or cellZ == nil then
+        local legacyPosition = getLegacyPosition(itemInfo)
+        local plotInfo = plotId and getPlotInfo(plotId)
+        if legacyPosition and plotInfo then
+            cellX = roundToNearestCell((legacyPosition.X - plotInfo.position.X) / GRID_UNIT_SIZE - cellsX / 2)
+            cellZ = roundToNearestCell((legacyPosition.Z - plotInfo.position.Z) / GRID_UNIT_SIZE - cellsZ / 2)
+        end
+    end
+
+    if cellX == nil or cellZ == nil then
+        return nil
+    end
+
+    local itemDef = Definitions.GetItem(itemName)
+
+    return {
+        itemName = itemName,
+        cellX = math.floor(tonumber(cellX) or 0),
+        cellZ = math.floor(tonumber(cellZ) or 0),
+        rotation = rotation,
+        scaleFactor = sanitizeScaleFactor(itemName, itemInfo.scaleFactor),
+        cellsX = cellsX,
+        cellsZ = cellsZ,
+        npcName = itemInfo.npcName or itemInfo.NPCName or (itemDef and itemDef.npcName) or nil,
+    }
+end
+
+local function migratePlotSaveData(rawData)
+    if type(rawData) ~= "table" then
+        return nil
+    end
+
+    local plotId = tonumber(rawData.plotId)
+    local migrated = {
+        version = PLOT_SAVE_VERSION,
+        plotId = plotId,
+        inventory = cloneInventoryForSave(rawData.inventory),
+        placedItems = {},
+        lastSaved = tonumber(rawData.lastSaved) or tick(),
+    }
+
+    for _, itemInfo in ipairs(rawData.placedItems or {}) do
+        local migratedItem = migrateSavedPlacedItem(itemInfo, plotId)
+        if migratedItem then
+            table.insert(migrated.placedItems, migratedItem)
+        end
+    end
+
+    return migrated
+end
+
+local function createPlotSaveData(player, plotId)
+    local data = playerData[player]
+    if not data then
+        return nil
+    end
+
+    data.inventory = normalizeInventory(data.inventory)
+
+    local saveData = {
+        version = PLOT_SAVE_VERSION,
+        plotId = plotId,
+        inventory = cloneInventoryForSave(data.inventory),
+        placedItems = {},
+        lastSaved = tick(),
+    }
+
+    for _, item in ipairs(data.placedItems) do
+        local savedItem = serializePlacedItem(item)
+        if savedItem then
+            table.insert(saveData.placedItems, savedItem)
+        end
+    end
+
+    return saveData
+end
+
+-- Function to save player data to DataStore
+local function savePlayerData(player)
+    local plotId = playerPlots[player.UserId]
+    if not plotId then return end
+
+    local saveData = createPlotSaveData(player, plotId)
+    if not saveData then return end
+
+    local key = getPlayerDataKey(player)
+    local lastErr = nil
+
+    for attempt = 1, MAX_DATASTORE_RETRIES do
+        local success, err = pcall(function()
+            playerDataStore:SetAsync(key, saveData)
+        end)
+
+        if success then
+            fallbackDataStore[key] = saveData
+            print("[SAVED] " .. player.Name .. " - " .. #saveData.placedItems .. " items on Plot " .. plotId .. " (v" .. saveData.version .. ")")
+            return true
+        end
+
+        lastErr = err
+        warn("[ERROR] Save attempt " .. attempt .. " failed for " .. player.Name .. ": " .. tostring(err))
+        if attempt < MAX_DATASTORE_RETRIES then
+            task.wait(DATASTORE_RETRY_DELAY)
+        end
+    end
+
+    fallbackDataStore[key] = saveData
+    warn("[ERROR] Failed to save data for " .. player.Name .. " after " .. MAX_DATASTORE_RETRIES .. " attempts; using fallback cache: " .. tostring(lastErr))
+    return false
 end
 
 -- Function to load player data from DataStore
 local function loadPlayerData(player)
-    -- Try DataStore first
-    local success, data = pcall(function()
-        return playerDataStore:GetAsync("Player_" .. player.UserId)
-    end)
-    
-    if success and data then
-        print("[LOADED] " .. player.Name .. " - " .. #data.placedItems .. " items from DataStore")
-        return data
+    local key = getPlayerDataKey(player)
+    local lastErr = nil
+
+    for attempt = 1, MAX_DATASTORE_RETRIES do
+        local success, data = pcall(function()
+            return playerDataStore:GetAsync(key)
+        end)
+
+        if success then
+            if data then
+                local migrated = migratePlotSaveData(data)
+                if migrated then
+                    fallbackDataStore[key] = migrated
+                    print("[LOADED] " .. player.Name .. " - " .. #migrated.placedItems .. " items from DataStore (v" .. tostring(data.version or 1) .. " -> v" .. migrated.version .. ")")
+                    return migrated
+                end
+            end
+            break
+        end
+
+        lastErr = data
+        warn("[ERROR] Load attempt " .. attempt .. " failed for " .. player.Name .. ": " .. tostring(data))
+        if attempt < MAX_DATASTORE_RETRIES then
+            task.wait(DATASTORE_RETRY_DELAY)
+        end
     end
-    
-    -- Fallback to memory storage
-    local fallbackData = fallbackDataStore["Player_" .. player.UserId]
+
+    local fallbackData = fallbackDataStore[key]
     if fallbackData then
-        print("[LOADED] " .. player.Name .. " - " .. #fallbackData.placedItems .. " items from fallback")
-        return fallbackData
+        local migrated = migratePlotSaveData(fallbackData)
+        if migrated then
+            print("[LOADED] " .. player.Name .. " - " .. #migrated.placedItems .. " items from fallback")
+            return migrated
+        end
     end
-    
+
+    if lastErr then
+        warn("[ERROR] No plot data loaded for " .. player.Name .. ": " .. tostring(lastErr))
+    end
+
     return nil
 end
 
 -- Function to migrate old inventory to new one (adds missing items and removes invalid ones)
 local function migrateInventory(oldInventory)
-    return normalizeInventory(oldInventory or DEFAULT_INVENTORY)
+    return cloneInventoryForSave(oldInventory or DEFAULT_INVENTORY)
 end
 
 -- Function to spawn saved items
@@ -1409,30 +1597,41 @@ local function spawnSavedItems(player, itemsData, plotId)
                 end
             end
             
-            -- Position the item
-            local position = Vector3.new(itemInfo.position[1], itemInfo.position[2], itemInfo.position[3])
+            -- Position the item from its saved grid footprint. Legacy saves are migrated before this point.
             local rotation = normalizeRotation(itemInfo.rotation)
-            local cellX = itemInfo.cellX
-            local cellZ = itemInfo.cellZ
-            local cellsX = itemInfo.cellsX or 1
-            local cellsZ = itemInfo.cellsZ or 1
-            if cellX == nil or cellZ == nil then
-                local plotInfo = getPlotInfo(plotId)
-                if plotInfo then
-                    cellX = roundToNearestCell((position.X - plotInfo.position.X) / GRID_UNIT_SIZE - cellsX / 2)
-                    cellZ = roundToNearestCell((position.Z - plotInfo.position.Z) / GRID_UNIT_SIZE - cellsZ / 2)
-                end
+            local cellX = tonumber(itemInfo.cellX)
+            local cellZ = tonumber(itemInfo.cellZ)
+            local cellsX = tonumber(itemInfo.cellsX)
+            local cellsZ = tonumber(itemInfo.cellsZ)
+            if not cellsX or not cellsZ then
+                cellsX, cellsZ = getRotatedFootprint(itemInfo.itemName, rotation)
             end
 
-            if itemInfo.itemName == "CurvedConveyor" and cellX ~= nil and cellZ ~= nil then
-                local plotInfo = getPlotInfo(plotId)
-                if plotInfo then
-                    local plotTopY = plotInfo.position.Y + plotInfo.size.Y / 2
-                    local footprintCenter = getFootprintCenter(cellX, cellZ, cellsX, cellsZ, plotInfo, plotTopY)
-                    pivotModelToFootprint(newItem, footprintCenter, plotTopY, rotation)
-                else
-                    newItem:PivotTo(CFrame.new(position) * getRotationCFrame(rotation))
-                end
+            cellsX = math.max(1, math.floor(cellsX))
+            cellsZ = math.max(1, math.floor(cellsZ))
+
+            local plotInfo = getPlotInfo(plotId)
+            if not plotInfo or cellX == nil or cellZ == nil then
+                warn("[LOAD] Skipped " .. tostring(itemInfo.itemName) .. " for " .. player.Name .. ": missing plot or grid cell")
+                newItem:Destroy()
+                continue
+            end
+
+            cellX = math.floor(cellX)
+            cellZ = math.floor(cellZ)
+            if not areCellsValid(cellX, cellZ, cellsX, cellsZ, plotInfo) or isAreaOccupied(player, cellX, cellZ, cellsX, cellsZ) then
+                warn("[LOAD] Skipped " .. tostring(itemInfo.itemName) .. " for " .. player.Name .. ": invalid or occupied grid cell")
+                newItem:Destroy()
+                continue
+            end
+
+            local plotTopY = plotInfo.position.Y + plotInfo.size.Y / 2
+            local footprintCenter = getFootprintCenter(cellX, cellZ, cellsX, cellsZ, plotInfo, plotTopY)
+            local _, size = newItem:GetBoundingBox()
+            local position = Vector3.new(footprintCenter.X, plotTopY + getAdjustedItemHeight(itemInfo.itemName, size.Y * scaleFactor) / 2, footprintCenter.Z)
+
+            if itemInfo.itemName == "CurvedConveyor" then
+                pivotModelToFootprint(newItem, footprintCenter, plotTopY, rotation)
             else
                 newItem:PivotTo(CFrame.new(position) * getRotationCFrame(rotation))
             end
@@ -1447,8 +1646,9 @@ local function spawnSavedItems(player, itemsData, plotId)
             newItem:SetAttribute("CellZ", cellZ)
             newItem:SetAttribute("Rotation", rotation)
             newItem:SetAttribute("ScaleFactor", scaleFactor)
-            if itemDef and itemDef.npcName then
-                newItem:SetAttribute("NPCName", itemDef.npcName)
+            local npcName = itemInfo.npcName or (itemDef and itemDef.npcName)
+            if npcName then
+                newItem:SetAttribute("NPCName", npcName)
             end
             
             -- Parent to player's items folder

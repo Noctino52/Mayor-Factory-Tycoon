@@ -77,6 +77,40 @@ local function GetDefaultProgress()
 	}
 end
 
+local function MigrateProgressData(storedData)
+	local migrated = GetDefaultProgress()
+	if type(storedData) ~= "table" then
+		return migrated
+	end
+
+	migrated.version = DATASTORE_VERSION
+	migrated.money = tonumber(storedData.money) or migrated.money
+
+	if type(storedData.npcReputation) == "table" then
+		for npcName, reputation in pairs(storedData.npcReputation) do
+			migrated.npcReputation[npcName] = tonumber(reputation) or 0
+		end
+	end
+
+	if type(storedData.townPrestige) == "table" then
+		migrated.townPrestige.stage = tonumber(storedData.townPrestige.stage) or migrated.townPrestige.stage
+		migrated.townPrestige.contributions = tonumber(storedData.townPrestige.contributions) or migrated.townPrestige.contributions
+		migrated.townPrestige.lastReward = storedData.townPrestige.lastReward
+	end
+
+	if type(storedData.statistics) == "table" then
+		for statName, statValue in pairs(storedData.statistics) do
+			if type(statValue) == "table" then
+				migrated.statistics[statName] = statValue
+			end
+		end
+	end
+
+	migrated.lastSaved = tonumber(storedData.lastSaved) or migrated.lastSaved
+
+	return migrated
+end
+
 -- ============================================================================
 -- DataStore Operations
 -- ============================================================================
@@ -217,16 +251,12 @@ function PlayerProgress.GetPlayerProgress(player)
 	local storedData = LoadPlayerDataFromStore(userId)
 
 	if storedData then
-		-- Validate and migrate old data if needed
-		if not storedData.version or storedData.version < DATASTORE_VERSION then
-			storedData = GetDefaultProgress()
-			for key, value in pairs(storedData) do
-				storedData[key] = value
-			end
+		local migratedData = MigrateProgressData(storedData)
+		playerDataCache[userId] = migratedData
+		if storedData.version ~= DATASTORE_VERSION then
+			PlayerProgress.SavePlayerProgress(player, migratedData)
 		end
-
-		playerDataCache[userId] = storedData
-		return storedData
+		return migratedData
 	end
 
 	-- Create default data for new player
