@@ -35,6 +35,14 @@ local ITEMS = {
 		rarity = "common",
 		isProduction = true,
 	},
+	Beam = {
+		name = "Beam",
+		icon = "B",
+		category = "wood",
+		value = 25,
+		rarity = "common",
+		isProduction = true,
+	},
 	Stone = {
 		name = "Stone",
 		icon = "🪨",
@@ -180,6 +188,33 @@ local ITEMS = {
 		isMachine = true,
 		isProduction = false,
 	},
+	BeamCutter = {
+		name = "BeamCutter",
+		icon = "BC",
+		category = "machine",
+		cost = 125,
+		type = "processor",
+		isMachine = true,
+		isProduction = false,
+	},
+	StoneCutter = {
+		name = "StoneCutter",
+		icon = "SC",
+		category = "machine",
+		cost = 125,
+		type = "processor",
+		isMachine = true,
+		isProduction = false,
+	},
+	Furnace = {
+		name = "Furnace",
+		icon = "F",
+		category = "machine",
+		cost = 175,
+		type = "processor",
+		isMachine = true,
+		isProduction = false,
+	},
 }
 
 -- ============================================================================
@@ -215,6 +250,33 @@ local MACHINES = {
 		processingTime = 3,
 		inputQueueSize = 2,
 		powerRequired = 8,
+	},
+	BeamCutter = {
+		name = "BeamCutter",
+		type = "processor",
+		inputItem = "Plank",
+		outputItem = "Beam",
+		processingTime = 4,
+		inputQueueSize = 2,
+		powerRequired = 12,
+	},
+	StoneCutter = {
+		name = "StoneCutter",
+		type = "processor",
+		inputItem = "Stone",
+		outputItem = "StoneBlock",
+		processingTime = 3,
+		inputQueueSize = 2,
+		powerRequired = 10,
+	},
+	Furnace = {
+		name = "Furnace",
+		type = "processor",
+		inputItem = "IronOre",
+		outputItem = "IronIngot",
+		processingTime = 5,
+		inputQueueSize = 2,
+		powerRequired = 15,
 	},
 }
 

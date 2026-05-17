@@ -10,6 +10,33 @@ local MachineSystem = {}
 local activeMachines = {}
 local initialized = false
 
+local function validateMachineDefinitions()
+    local outputsByItem = {}
+
+    for machineName, machineData in pairs(Definitions.MACHINES) do
+        if not Definitions.GetItem(machineName) then
+            error("[MachineSystem] Machine " .. tostring(machineName) .. " has no placeable item definition")
+        end
+
+        if machineData.type == "processor" and not Definitions.IsProduction(machineData.inputItem) then
+            error("[MachineSystem] Processor " .. tostring(machineName) .. " has invalid input item: " .. tostring(machineData.inputItem))
+        end
+
+        if machineData.outputItem then
+            if not Definitions.IsProduction(machineData.outputItem) then
+                error("[MachineSystem] Machine " .. tostring(machineName) .. " has invalid output item: " .. tostring(machineData.outputItem))
+            end
+
+            local existingMachine = outputsByItem[machineData.outputItem]
+            if existingMachine then
+                error("[MachineSystem] Output item " .. tostring(machineData.outputItem) .. " is produced by both " .. tostring(existingMachine) .. " and " .. tostring(machineName))
+            end
+
+            outputsByItem[machineData.outputItem] = machineName
+        end
+    end
+end
+
 local function machineKey(cellX, cellZ)
     return tostring(cellX) .. "_" .. tostring(cellZ)
 end
@@ -511,6 +538,8 @@ function MachineSystem.Initialize()
     if initialized then
         return
     end
+
+    validateMachineDefinitions()
 
     initialized = true
     ConveyorSystem.SetMachineInputHandler(MachineSystem.FeedMachine)

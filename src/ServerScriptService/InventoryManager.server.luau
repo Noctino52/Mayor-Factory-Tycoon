@@ -711,6 +711,130 @@ local function createSawmillTemplate()
     return sawmill
 end
 
+local PROCESSOR_TEMPLATE_STYLES = {
+    BeamCutter = {
+        baseColor = Color3.fromRGB(116, 78, 42),
+        bodyColor = Color3.fromRGB(92, 72, 56),
+        accentColor = Color3.fromRGB(235, 185, 92),
+        material = Enum.Material.WoodPlanks,
+    },
+    StoneCutter = {
+        baseColor = Color3.fromRGB(92, 96, 100),
+        bodyColor = Color3.fromRGB(112, 118, 124),
+        accentColor = Color3.fromRGB(170, 210, 235),
+        material = Enum.Material.Concrete,
+    },
+    Furnace = {
+        baseColor = Color3.fromRGB(52, 50, 48),
+        bodyColor = Color3.fromRGB(72, 68, 64),
+        accentColor = Color3.fromRGB(255, 132, 54),
+        material = Enum.Material.Metal,
+    },
+}
+
+local function createProcessorTemplate(itemName)
+    local existing = templatesFolder:FindFirstChild(itemName)
+    if existing then
+        return existing
+    end
+
+    local itemDef = Definitions.GetItem(itemName)
+    local machineData = Definitions.GetMachine(itemName)
+    if not itemDef or itemDef.type ~= "processor" or not machineData or machineData.type ~= "processor" then
+        return nil
+    end
+
+    local style = PROCESSOR_TEMPLATE_STYLES[itemName] or {
+        baseColor = Color3.fromRGB(64, 70, 76),
+        bodyColor = Color3.fromRGB(94, 100, 108),
+        accentColor = Color3.fromRGB(120, 210, 255),
+        material = Enum.Material.Metal,
+    }
+
+    local processor = Instance.new("Model")
+    processor.Name = itemName
+
+    local base = Instance.new("Part")
+    base.Name = "Base"
+    base.Size = Vector3.new(7.4, 0.45, 7.4)
+    base.CFrame = CFrame.new(0, 0.225, 0)
+    base.Anchored = true
+    base.CanCollide = true
+    base.Material = style.material
+    base.Color = style.baseColor
+    base.Parent = processor
+
+    local body = Instance.new("Part")
+    body.Name = "Body"
+    body.Size = Vector3.new(5.5, 1.7, 3.6)
+    body.CFrame = CFrame.new(0, 1.3, 0)
+    body.Anchored = true
+    body.CanCollide = true
+    body.Material = Enum.Material.Metal
+    body.Color = style.bodyColor
+    body.Parent = processor
+
+    local inputHopper = Instance.new("Part")
+    inputHopper.Name = "InputHopper"
+    inputHopper.Size = Vector3.new(1.2, 0.5, 3.0)
+    inputHopper.CFrame = CFrame.new(-2.7, 1.9, 0)
+    inputHopper.Anchored = true
+    inputHopper.CanCollide = false
+    inputHopper.CanQuery = false
+    inputHopper.CanTouch = false
+    inputHopper.Material = Enum.Material.SmoothPlastic
+    inputHopper.Color = Color3.fromRGB(42, 46, 52)
+    inputHopper.Parent = processor
+
+    local outputChute = Instance.new("Part")
+    outputChute.Name = "OutputChute"
+    outputChute.Size = Vector3.new(1.8, 0.35, 2.4)
+    outputChute.CFrame = CFrame.new(3.1, 1.05, 0)
+    outputChute.Anchored = true
+    outputChute.CanCollide = false
+    outputChute.CanQuery = false
+    outputChute.CanTouch = false
+    outputChute.Material = Enum.Material.Metal
+    outputChute.Color = style.accentColor
+    outputChute.Parent = processor
+
+    local tool = Instance.new(itemName == "Furnace" and "Part" or "WedgePart")
+    tool.Name = itemName == "Furnace" and "Firebox" or "CutterHead"
+    tool.Size = itemName == "Furnace" and Vector3.new(2.5, 1.0, 2.0) or Vector3.new(2.2, 0.7, 2.2)
+    tool.CFrame = itemName == "Furnace" and CFrame.new(0, 2.25, 0) or CFrame.new(0.3, 2.35, 0) * CFrame.Angles(0, 0, math.rad(-90))
+    tool.Anchored = true
+    tool.CanCollide = false
+    tool.CanQuery = false
+    tool.CanTouch = false
+    tool.Material = itemName == "Furnace" and Enum.Material.Neon or Enum.Material.Metal
+    tool.Color = style.accentColor
+    tool.Parent = processor
+
+    local billboard = Instance.new("BillboardGui")
+    billboard.Name = "RecipeLabel"
+    billboard.Size = UDim2.fromOffset(150, 32)
+    billboard.StudsOffsetWorldSpace = Vector3.new(0, 3.25, 0)
+    billboard.AlwaysOnTop = true
+    billboard.Parent = base
+
+    local label = Instance.new("TextLabel")
+    label.Name = "Label"
+    label.Size = UDim2.fromScale(1, 1)
+    label.BackgroundTransparency = 0.25
+    label.BackgroundColor3 = Color3.fromRGB(18, 20, 22)
+    label.BorderSizePixel = 0
+    label.Text = tostring(machineData.inputItem) .. " -> " .. tostring(machineData.outputItem)
+    label.TextColor3 = Color3.fromRGB(245, 248, 250)
+    label.TextScaled = true
+    label.Font = Enum.Font.GothamBold
+    label.Parent = billboard
+
+    processor.PrimaryPart = base
+    processor.Parent = templatesFolder
+
+    return processor
+end
+
 local function createGeneratorTemplate(itemName)
     local existing = templatesFolder:FindFirstChild(itemName)
     if existing then
@@ -869,6 +993,11 @@ local function ensureItemTemplate(itemName)
 
     if itemName == "Sawmill" then
         return createSawmillTemplate()
+    end
+
+    local machineData = Definitions.GetMachine(itemName)
+    if machineData and machineData.type == "processor" then
+        return createProcessorTemplate(itemName)
     end
 
     local itemDef = Definitions.GetItem(itemName)

@@ -7,6 +7,7 @@ ProductionItems.Size = Vector3.new(0.5, 0.5, 0.5)
 local ITEM_COLORS = {
     Log = Color3.fromRGB(124, 78, 43),
     Plank = Color3.fromRGB(190, 142, 84),
+    Beam = Color3.fromRGB(150, 102, 52),
     Stone = Color3.fromRGB(122, 128, 132),
     StoneBlock = Color3.fromRGB(150, 154, 158),
     IronOre = Color3.fromRGB(82, 86, 92),
@@ -16,6 +17,9 @@ local ITEM_COLORS = {
 local ITEM_MAX_BOUNDS = {
     IronOre = Vector3.new(1.05, 0.75, 1.05),
     Plank = Vector3.new(1.35, 0.45, 1.35),
+    Beam = Vector3.new(1.5, 0.45, 0.65),
+    StoneBlock = Vector3.new(0.9, 0.75, 0.9),
+    IronIngot = Vector3.new(1.1, 0.45, 0.55),
 }
 
 function ProductionItems.GetColor(itemName)
