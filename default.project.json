@@ -36,6 +36,9 @@
           "TreeFarm": {"$path": "src/ReplicatedStorage/Shared/ItemTemplates/TreeFarm.rbxm"},
           "MineEntrance": {"$path": "src/ReplicatedStorage/Shared/ItemTemplates/MineEntrace.rbxm"},
           "Sawmill": {"$path": "src/ReplicatedStorage/Shared/ItemTemplates/Sawmill.rbxmx"},
+          "BeamCutter": {"$path": "src/Workspace/Models/BeamCutter.rbxm"},
+          "StoneCutter": {"$path": "src/Workspace/Models/StoneCutter.rbxm"},
+          "Furnace": {"$path": "src/Workspace/Models/Furnace.rbxm"},
           "SmallGenerator": {"$path": "src/Workspace/Models/Small Generator.rbxm"},
           "Conveyor": {"$path": "src/Workspace/Models/Conveyor Belt.rbxm"},
           "CurvedConveyor": {"$path": "src/Workspace/Models/Curved Conveyor.rbxm"}
