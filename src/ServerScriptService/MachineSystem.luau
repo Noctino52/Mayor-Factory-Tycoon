@@ -177,71 +177,9 @@ local function updateProcessingVisual(machine)
     end
 
     local adornee = getFirstBasePart(instance)
-    if not adornee then
-        return
-    end
-
-    local billboard = adornee:FindFirstChild("ProcessingStatus")
-    if not billboard then
-        billboard = Instance.new("BillboardGui")
-        billboard.Name = "ProcessingStatus"
-        billboard.Size = UDim2.fromOffset(150, 72)
-        billboard.StudsOffsetWorldSpace = Vector3.new(0, 3.4, 0)
-        billboard.AlwaysOnTop = true
-        billboard.Parent = adornee
-
-        local panel = Instance.new("Frame")
-        panel.Name = "Panel"
-        panel.Size = UDim2.fromScale(1, 1)
-        panel.BackgroundTransparency = 0.25
-        panel.BackgroundColor3 = Color3.fromRGB(18, 20, 22)
-        panel.BorderSizePixel = 0
-        panel.Parent = billboard
-
-        local recipeLabel = Instance.new("TextLabel")
-        recipeLabel.Name = "RecipeLabel"
-        recipeLabel.Size = UDim2.new(1, -10, 0, 20)
-        recipeLabel.Position = UDim2.fromOffset(5, 4)
-        recipeLabel.BackgroundTransparency = 1
-        recipeLabel.TextColor3 = Color3.fromRGB(245, 238, 220)
-        recipeLabel.TextScaled = true
-        recipeLabel.Font = Enum.Font.GothamBold
-        recipeLabel.Parent = panel
-
-        local queueLabel = Instance.new("TextLabel")
-        queueLabel.Name = "QueueLabel"
-        queueLabel.Size = UDim2.new(0.5, -6, 0, 18)
-        queueLabel.Position = UDim2.fromOffset(5, 26)
-        queueLabel.BackgroundTransparency = 1
-        queueLabel.TextColor3 = Color3.fromRGB(210, 218, 225)
-        queueLabel.TextScaled = true
-        queueLabel.Font = Enum.Font.Gotham
-        queueLabel.Parent = panel
-
-        local timeLabel = Instance.new("TextLabel")
-        timeLabel.Name = "TimeLabel"
-        timeLabel.Size = UDim2.new(0.5, -6, 0, 18)
-        timeLabel.Position = UDim2.new(0.5, 1, 0, 26)
-        timeLabel.BackgroundTransparency = 1
-        timeLabel.TextColor3 = Color3.fromRGB(170, 220, 255)
-        timeLabel.TextScaled = true
-        timeLabel.Font = Enum.Font.GothamBold
-        timeLabel.Parent = panel
-
-        local progressBack = Instance.new("Frame")
-        progressBack.Name = "ProgressBack"
-        progressBack.Size = UDim2.new(1, -10, 0, 8)
-        progressBack.Position = UDim2.fromOffset(5, 55)
-        progressBack.BackgroundColor3 = Color3.fromRGB(54, 58, 62)
-        progressBack.BorderSizePixel = 0
-        progressBack.Parent = panel
-
-        local progressFill = Instance.new("Frame")
-        progressFill.Name = "ProgressFill"
-        progressFill.Size = UDim2.fromScale(0, 1)
-        progressFill.BackgroundColor3 = Color3.fromRGB(92, 185, 255)
-        progressFill.BorderSizePixel = 0
-        progressFill.Parent = progressBack
+    local billboard = adornee and adornee:FindFirstChild("ProcessingStatus")
+    if billboard then
+        billboard:Destroy()
     end
 
     local machineData = Definitions.GetMachine(machine.name)
@@ -260,38 +198,41 @@ local function updateProcessingVisual(machine)
         remaining = math.max(0, processingTime - elapsed)
     end
 
-    local panel = billboard:FindFirstChild("Panel")
-    if panel then
-        local recipeLabel = panel:FindFirstChild("RecipeLabel")
-        if recipeLabel and recipeLabel:IsA("TextLabel") then
-            recipeLabel.Text = inputItem .. " " .. tostring(receivedCount) .. "/" .. tostring(recipeInputCount) .. " -> " .. outputItem
-        end
-
-        local queueLabel = panel:FindFirstChild("QueueLabel")
-        if queueLabel and queueLabel:IsA("TextLabel") then
-            queueLabel.Text = "Queue " .. tostring(#machine.inputQueue) .. "/" .. tostring(machine.inputQueueSize)
-        end
-
-        local timeLabel = panel:FindFirstChild("TimeLabel")
-        if timeLabel and timeLabel:IsA("TextLabel") then
-            timeLabel.Text = remaining and string.format("%.1fs", remaining) or "Ready"
-        end
-
-        local progressBack = panel:FindFirstChild("ProgressBack")
-        local progressFill = progressBack and progressBack:FindFirstChild("ProgressFill")
-        if progressFill and progressFill:IsA("Frame") then
-            progressFill.Size = UDim2.fromScale(progress, 1)
-        end
-    end
-
+    instance:SetAttribute("MachineType", "processor")
+    instance:SetAttribute("MachineInputItem", inputItem)
+    instance:SetAttribute("MachineOutputItem", outputItem)
+    instance:SetAttribute("MachineRecipeText", inputItem .. " " .. tostring(receivedCount) .. "/" .. tostring(recipeInputCount) .. " -> " .. outputItem)
+    instance:SetAttribute("MachineQueueText", "Queue " .. tostring(#machine.inputQueue) .. "/" .. tostring(machine.inputQueueSize))
+    instance:SetAttribute("MachineStatusText", remaining and string.format("%.1fs", remaining) or "Ready")
     instance:SetAttribute("ProcessingCount", #machine.inputQueue)
     instance:SetAttribute("ProcessingCapacity", machine.inputQueueSize)
+    instance:SetAttribute("ProcessingProgress", progress)
+end
+
+local function updateProducerVisual(machine, machineData)
+    local instance = machine.instance
+    if not instance or not instance.Parent or machine.type ~= "producer" then
+        return
+    end
+
+    local outputItem = machineData and machineData.outputItem or "Output"
+    local progress = machine.productionProgress or 0
+
+    instance:SetAttribute("MachineType", "producer")
+    instance:SetAttribute("MachineInputItem", "")
+    instance:SetAttribute("MachineOutputItem", outputItem)
+    instance:SetAttribute("MachineRecipeText", "Produces " .. tostring(outputItem))
+    instance:SetAttribute("MachineQueueText", "")
+    instance:SetAttribute("MachineStatusText", string.format("%d%%", math.floor(progress * 100 + 0.5)))
+    instance:SetAttribute("ProcessingCount", 0)
+    instance:SetAttribute("ProcessingCapacity", 0)
     instance:SetAttribute("ProcessingProgress", progress)
 end
 
 local function updateProducer(player, machine, machineData, now)
     local outputFrequency = machineData.outputFrequency or 5
     machine.productionProgress = math.clamp((now - machine.lastProducedTime) / outputFrequency, 0, 1)
+    updateProducerVisual(machine, machineData)
 
     if now - machine.lastProducedTime < outputFrequency then
         return
@@ -308,12 +249,14 @@ local function updateProducer(player, machine, machineData, now)
     if spawned then
         machine.lastProducedTime = now
         machine.productionProgress = 0
+        updateProducerVisual(machine, machineData)
         machine.retryAt = nil
     elseif message == "Conveyor cell is full" then
         machine.retryAt = now + 0.5
     else
         machine.lastProducedTime = now
         machine.productionProgress = 0
+        updateProducerVisual(machine, machineData)
         machine.retryAt = nil
     end
 end
@@ -373,6 +316,13 @@ local function updateMachineProduction(player, machine, now)
                 inputItem.receivedAt = now
             end
             updateProcessingVisual(machine)
+        elseif machine.type == "producer" then
+            updateProducerVisual(machine, machineData)
+        end
+
+        if machine.instance and machine.instance.Parent then
+            machine.instance:SetAttribute("MachineStatusText", "No power")
+            machine.instance:SetAttribute("ProcessingProgress", 0)
         end
 
         return
@@ -437,7 +387,11 @@ function MachineSystem.RegisterMachine(player, cellX, cellZ, machineName, instan
     end
 
     activeMachines[player][machineKey(cellX, cellZ)] = machine
-    updateProcessingVisual(machine)
+    if machine.type == "processor" then
+        updateProcessingVisual(machine)
+    elseif machine.type == "producer" then
+        updateProducerVisual(machine, machineData)
+    end
 
     return true
 end

@@ -30,8 +30,13 @@
         "ItemTemplates": {
           "$className": "Folder",
           "RubiksCube": {"$path": "src/ReplicatedStorage/Shared/ItemTemplates/RubiksCube.rbxm"},
+          "DecorTree": {"$path": "src/Workspace/Models/Decor Tree.rbxm"},
+          "FactorySign": {"$path": "src/Workspace/Models/Wood Sign.rbxm"},
+          "StreetLamp": {"$path": "src/Workspace/Models/LampPost.rbxm"},
           "TreeFarm": {"$path": "src/ReplicatedStorage/Shared/ItemTemplates/TreeFarm.rbxm"},
           "MineEntrance": {"$path": "src/ReplicatedStorage/Shared/ItemTemplates/MineEntrace.rbxm"},
+          "Sawmill": {"$path": "src/ReplicatedStorage/Shared/ItemTemplates/Sawmill.rbxmx"},
+          "SmallGenerator": {"$path": "src/Workspace/Models/Small Generator.rbxm"},
           "Conveyor": {"$path": "src/Workspace/Models/Conveyor Belt.rbxm"},
           "CurvedConveyor": {"$path": "src/Workspace/Models/Curved Conveyor.rbxm"}
         },
@@ -40,6 +45,10 @@
           "Log": {"$path": "src/Workspace/Models/Log.rbxm"},
           "IronOre": {"$path": "src/Workspace/Models/Iron ore.rbxm"},
           "Plank": {"$path": "src/Workspace/Models/Plank.rbxm"}
+        },
+        "FlowPreviewTemplates": {
+          "$className": "Folder",
+          "ArrowForBelt": {"$path": "src/Workspace/Models/ArrowForBelt.rbxm"}
         }
       }
     },

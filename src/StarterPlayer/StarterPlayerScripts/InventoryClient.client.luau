@@ -7,12 +7,15 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local UserInputService = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
+local ProximityPromptService = game:GetService("ProximityPromptService")
 
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
 local sharedFolder = ReplicatedStorage:WaitForChild("Shared")
 local Definitions = require(sharedFolder:WaitForChild("Definitions"))
 local templatesFolder = sharedFolder:WaitForChild("ItemTemplates")
+local flowPreviewTemplatesFolder = sharedFolder:WaitForChild("FlowPreviewTemplates")
+local arrowForBeltTemplate = flowPreviewTemplatesFolder:WaitForChild("ArrowForBelt")
 
 -- Wait for remotes
 local placeItemRemote = ReplicatedStorage:WaitForChild("PlaceItem")
@@ -21,10 +24,12 @@ local deleteItemRemote = ReplicatedStorage:WaitForChild("DeleteItem")
 local rotateItemRemote = ReplicatedStorage:WaitForChild("RotateItem")
 local getPlotRemote = ReplicatedStorage:WaitForChild("GetPlayerPlot")
 local inventoryUpdatedRemote = ReplicatedStorage:WaitForChild("InventoryUpdated")
+local updateFactorySignTextRemote = ReplicatedStorage:WaitForChild("UpdateFactorySignText")
 
 -- Configuration
 local GHOST_TRANSPARENCY = 0.6
 local GRID_UNIT_SIZE = 8 -- Fixed grid size in studs
+local MAX_FACTORY_SIGN_TEXT_LENGTH = 32
 
 -- Item Icons mapping
 local ITEM_ICONS = {
@@ -70,6 +75,10 @@ local itemContextMenu = nil
 local contextMenuTarget = nil
 local contextMenuTween = nil
 local lastContextRotateAt = 0
+local activeFactorySign = nil
+local signEditorFrame = nil
+local signEditorTextBox = nil
+local signEditorStatus = nil
 local placementIndicator = nil
 local indicatorText = nil
 local currentGridUnit = 0 -- Cache for current grid unit size
@@ -195,6 +204,18 @@ local ITEM_VISUAL_ADJUSTMENTS = {
         footprintPadding = 0.82,
         maxHeight = 1.2,
         maxScale = 3,
+    },
+    DecorTree = {
+        footprintPadding = 2,
+        maxScale = 2,
+    },
+    FactorySign = {
+        footprintPadding = 2,
+        maxScale = 2,
+    },
+    StreetLamp = {
+        footprintPadding = 2,
+        maxScale = 2,
     },
 }
 
@@ -779,7 +800,7 @@ local function getFirstBasePartForFlow(instance)
 end
 
 local function isFlowPreviewItem(itemName)
-    return FLOW_PREVIEW_ITEMS[itemName] == true
+    return FLOW_PREVIEW_ITEMS[itemName] == true or Definitions.GetMachine(itemName) ~= nil
 end
 
 local function getFlowItemType(itemName)
@@ -843,10 +864,12 @@ local function createFlowCellInfo(instance, itemName, cellX, cellZ, cellsX, cell
     rotation = math.floor(tonumber(rotation ~= nil and rotation or (instance and instance:GetAttribute("Rotation"))) or 0) % 4
 
     local flowType = getFlowItemType(itemName)
+    local machineData = Definitions.GetMachine(itemName)
     local info = {
         type = flowType,
         instance = instance,
         itemName = itemName,
+        machineData = machineData,
         cellX = math.floor(tonumber(cellX) or 0),
         cellZ = math.floor(tonumber(cellZ) or 0),
         cellsX = math.max(1, math.floor(tonumber(cellsX) or 1)),
@@ -1039,6 +1062,44 @@ local function getMergerInputCellsForPreview(info)
     return inputCells
 end
 
+local function isFlowSourceType(flowType)
+    return isFlowTransportType(flowType) or flowType == "machine"
+end
+
+local function getMachineOutputDirection(info)
+    local machineData = info and (info.machineData or Definitions.GetMachine(info.itemName))
+    local rotationOffset = machineData and tonumber(machineData.outputRotationOffset) or 0
+    return rotateDirection(1, 0, (info.rotation or 0) + rotationOffset)
+end
+
+local function getMachineOutputCell(info)
+    local directionX, directionZ = getMachineOutputDirection(info)
+
+    if directionX > 0 then
+        return info.cellX + info.cellsX, info.cellZ
+    elseif directionX < 0 then
+        return info.cellX - 1, info.cellZ
+    elseif directionZ > 0 then
+        return info.cellX, info.cellZ + info.cellsZ
+    end
+
+    return info.cellX, info.cellZ - 1
+end
+
+local function getMachineInputCell(info)
+    local directionX, directionZ = getMachineOutputDirection(info)
+
+    if directionX > 0 then
+        return info.cellX - 1, info.cellZ
+    elseif directionX < 0 then
+        return info.cellX + info.cellsX, info.cellZ
+    elseif directionZ > 0 then
+        return info.cellX, info.cellZ - 1
+    end
+
+    return info.cellX, info.cellZ + info.cellsZ
+end
+
 local function canTransportReceiveFrom(info, previousCellX, previousCellZ)
     if not info or not isFlowTransportType(info.type) then
         return false
@@ -1094,6 +1155,13 @@ local function getFlowStartStates(info)
         end
 
         return {}
+    elseif info.type == "machine" then
+        return {{
+            cellX = info.cellX,
+            cellZ = info.cellZ,
+            previousCellX = nil,
+            previousCellZ = nil,
+        }}
     end
 
     local directionX = info.directionX or 1
@@ -1150,6 +1218,21 @@ local function getNextFlowTargets(info, state)
             fromCellZ = fromCellZ,
             isJunctionRoute = true,
         }}
+    elseif info.type == "machine" then
+        local machineData = info.machineData or Definitions.GetMachine(info.itemName)
+        if not machineData or (machineData.type ~= "producer" and machineData.type ~= "processor") then
+            return {}
+        end
+
+        local nextCellX, nextCellZ = getMachineOutputCell(info)
+        local fromCellX, fromCellZ = getAdjacentFootprintCell(info, nextCellX, nextCellZ)
+        return {{
+            cellX = nextCellX,
+            cellZ = nextCellZ,
+            fromCellX = fromCellX,
+            fromCellZ = fromCellZ,
+            isMachineOutput = true,
+        }}
     end
 
     local directionX = info.directionX or 1
@@ -1170,27 +1253,39 @@ local function getPreviewCellWorldPosition(cellX, cellZ, plotInfo, gridUnit)
     )
 end
 
-local function createFlowPreviewPart(name, size, cframe, color)
-    local part = Instance.new("Part")
-    part.Name = name
-    part.Size = size
-    part.CFrame = cframe
-    part.Anchored = true
-    part.CanCollide = false
-    part.CanQuery = false
-    part.CanTouch = false
-    part.CastShadow = false
-    part.Material = Enum.Material.Neon
-    part.Color = color
-    part.Transparency = 0.08
-    part.Parent = getFlowPreviewFolder()
+local function styleFlowPreviewInstance(instance, color)
+    local descendants = instance:GetDescendants()
+    table.insert(descendants, instance)
 
-    return part
+    for _, descendant in ipairs(descendants) do
+        if descendant:IsA("BasePart") then
+            descendant.Anchored = true
+            descendant.CanCollide = false
+            descendant.CanQuery = false
+            descendant.CanTouch = false
+            descendant.CastShadow = false
+            descendant.Material = Enum.Material.Neon
+            descendant.Color = color
+            descendant.Transparency = 0.08
+        elseif descendant:IsA("Script") or descendant:IsA("LocalScript") then
+            descendant:Destroy()
+        end
+    end
 end
 
-local function drawFlowArrow(fromCellX, fromCellZ, toCellX, toCellZ, color, plotInfo, gridUnit)
-    local fromPosition = getPreviewCellWorldPosition(fromCellX, fromCellZ, plotInfo, gridUnit)
-    local toPosition = getPreviewCellWorldPosition(toCellX, toCellZ, plotInfo, gridUnit)
+local function getArrowForwardCFrame(center, direction)
+    local up = Vector3.yAxis
+    local zAxis = direction:Cross(up)
+    if zAxis.Magnitude < 0.001 then
+        zAxis = Vector3.zAxis
+    else
+        zAxis = zAxis.Unit
+    end
+
+    return CFrame.fromMatrix(center, direction, up, zAxis)
+end
+
+local function drawModelFlowArrow(fromPosition, toPosition, color, gridUnit)
     local delta = Vector3.new(toPosition.X - fromPosition.X, 0, toPosition.Z - fromPosition.Z)
     local distance = delta.Magnitude
     if distance < 0.001 then
@@ -1198,53 +1293,37 @@ local function drawFlowArrow(fromCellX, fromCellZ, toCellX, toCellZ, color, plot
     end
 
     local direction = delta.Unit
-    local yaw = math.atan2(direction.X, direction.Z)
-    local thickness = 0.08
-    local shaftWidth = math.clamp(gridUnit * 0.11, 0.35, 0.8)
-    local shaftLength = math.max(gridUnit * 0.24, distance * 0.46)
-    local headLength = math.max(gridUnit * 0.18, distance * 0.2)
-    local shaftCenter = fromPosition + direction * (distance * 0.42)
-    local headCenter = fromPosition + direction * (distance * 0.7)
+    local center = fromPosition + direction * (distance * 0.5)
+    local arrow = arrowForBeltTemplate:Clone()
+    arrow.Name = "FlowPreviewArrow"
+    styleFlowPreviewInstance(arrow, color)
+    arrow.Parent = getFlowPreviewFolder()
 
-    createFlowPreviewPart(
-        "FlowPreviewArrowShaft",
-        Vector3.new(shaftWidth, thickness, shaftLength),
-        CFrame.new(shaftCenter) * CFrame.Angles(0, yaw, 0),
-        color
-    )
+    if arrow:IsA("Model") then
+        local _, templateSize = arrow:GetBoundingBox()
+        local templateLength = math.max(templateSize.X, 0.001)
+        local desiredLength = math.clamp(distance * 0.48, gridUnit * 0.3, gridUnit * 0.56)
+        arrow:ScaleTo(desiredLength / templateLength)
+        arrow:PivotTo(getArrowForwardCFrame(center, -direction))
+    elseif arrow:IsA("BasePart") then
+        local templateLength = math.max(arrow.Size.X, 0.001)
+        local desiredLength = math.clamp(distance * 0.48, gridUnit * 0.3, gridUnit * 0.56)
+        local scale = desiredLength / templateLength
+        arrow.Size = arrow.Size * scale
+        arrow.CFrame = getArrowForwardCFrame(center, -direction)
+    end
 
-    createFlowPreviewPart(
-        "FlowPreviewArrowHeadLeft",
-        Vector3.new(shaftWidth, thickness, headLength),
-        CFrame.new(headCenter) * CFrame.Angles(0, yaw + math.rad(135), 0),
-        color
-    )
+end
 
-    createFlowPreviewPart(
-        "FlowPreviewArrowHeadRight",
-        Vector3.new(shaftWidth, thickness, headLength),
-        CFrame.new(headCenter) * CFrame.Angles(0, yaw - math.rad(135), 0),
-        color
-    )
+local function drawFlowArrow(fromCellX, fromCellZ, toCellX, toCellZ, color, plotInfo, gridUnit)
+    local fromPosition = getPreviewCellWorldPosition(fromCellX, fromCellZ, plotInfo, gridUnit)
+    local toPosition = getPreviewCellWorldPosition(toCellX, toCellZ, plotInfo, gridUnit)
+    drawModelFlowArrow(fromPosition, toPosition, color, gridUnit)
 end
 
 local function drawFlowStopMarker(cellX, cellZ, color, plotInfo, gridUnit)
     local center = getPreviewCellWorldPosition(cellX, cellZ, plotInfo, gridUnit)
-    local markerSize = math.clamp(gridUnit * 0.32, 1.5, 2.7)
-    local barWidth = math.clamp(gridUnit * 0.08, 0.3, 0.55)
-
-    createFlowPreviewPart(
-        "FlowPreviewStopA",
-        Vector3.new(barWidth, 0.09, markerSize),
-        CFrame.new(center) * CFrame.Angles(0, math.rad(45), 0),
-        color
-    )
-    createFlowPreviewPart(
-        "FlowPreviewStopB",
-        Vector3.new(barWidth, 0.09, markerSize),
-        CFrame.new(center) * CFrame.Angles(0, math.rad(-45), 0),
-        color
-    )
+    drawModelFlowArrow(center - Vector3.xAxis * gridUnit * 0.28, center + Vector3.xAxis * gridUnit * 0.28, color, gridUnit)
 end
 
 local function classifyFlowTarget(target, nextInfo, visitedCells, plotInfo, gridUnit)
@@ -1256,7 +1335,20 @@ local function classifyFlowTarget(target, nextInfo, visitedCells, plotInfo, grid
         return FLOW_PREVIEW_COLORS.invalid, false
     end
 
-    if nextInfo.type == "machine" or nextInfo.type == "sell_zone" then
+    if visitedCells[cellKey(target.cellX, target.cellZ)] then
+        return FLOW_PREVIEW_COLORS.invalid, false
+    end
+
+    if nextInfo.type == "machine" then
+        local machineData = nextInfo.machineData or Definitions.GetMachine(nextInfo.itemName)
+        if machineData and machineData.type == "processor" then
+            return FLOW_PREVIEW_COLORS.terminal, true
+        end
+
+        return FLOW_PREVIEW_COLORS.invalid, false
+    end
+
+    if nextInfo.type == "sell_zone" then
         return FLOW_PREVIEW_COLORS.terminal, false
     end
 
@@ -1265,10 +1357,6 @@ local function classifyFlowTarget(target, nextInfo, visitedCells, plotInfo, grid
     end
 
     if not canTransportReceiveFrom(nextInfo, target.fromCellX, target.fromCellZ) then
-        return FLOW_PREVIEW_COLORS.invalid, false
-    end
-
-    if visitedCells[cellKey(target.cellX, target.cellZ)] then
         return FLOW_PREVIEW_COLORS.invalid, false
     end
 
@@ -1297,7 +1385,7 @@ local function markFlowFootprintVisited(visitedCells, info)
 end
 
 local function renderFlowPreview(startInfo, plotInfo, gridUnit)
-    if not startInfo or not isFlowTransportType(startInfo.type) then
+    if not startInfo or not isFlowSourceType(startInfo.type) then
         return
     end
 
@@ -1311,6 +1399,17 @@ local function renderFlowPreview(startInfo, plotInfo, gridUnit)
     end
 
     local drawnSteps = 0
+    if startInfo.type == "machine" then
+        local machineData = startInfo.machineData or Definitions.GetMachine(startInfo.itemName)
+        if machineData and machineData.type == "processor" then
+            local inputCellX, inputCellZ = getMachineInputCell(startInfo)
+            local toCellX, toCellZ = getAdjacentFootprintCell(startInfo, inputCellX, inputCellZ)
+            local color = areCellsValid(inputCellX, inputCellZ, 1, 1, plotInfo, gridUnit) and FLOW_PREVIEW_COLORS.terminal or FLOW_PREVIEW_COLORS.invalid
+            drawFlowArrow(inputCellX, inputCellZ, toCellX, toCellZ, color, plotInfo, gridUnit)
+            drawnSteps += 1
+        end
+    end
+
     if startInfo.type == "merger" then
         for _, inputCell in pairs(getMergerInputCellsForPreview(startInfo)) do
             if drawnSteps >= FLOW_PREVIEW_MAX_STEPS then
@@ -1328,7 +1427,7 @@ local function renderFlowPreview(startInfo, plotInfo, gridUnit)
         local state = table.remove(queue, 1)
         local currentInfo = lookup[cellKey(state.cellX, state.cellZ)]
 
-        if not currentInfo or not isFlowTransportType(currentInfo.type) then
+        if not currentInfo or not isFlowSourceType(currentInfo.type) then
             break
         end
 
@@ -1456,6 +1555,237 @@ local screenGui = Instance.new("ScreenGui")
 screenGui.Name = "InventoryUI"
 screenGui.ResetOnSpawn = false
 screenGui.Parent = playerGui
+
+local function sanitizeFactorySignText(text)
+    text = tostring(text or "")
+    text = text:gsub("[%c\r\n\t]", " ")
+    text = text:gsub("%s+", " ")
+    text = text:match("^%s*(.-)%s*$") or ""
+
+    if #text > MAX_FACTORY_SIGN_TEXT_LENGTH then
+        text = text:sub(1, MAX_FACTORY_SIGN_TEXT_LENGTH)
+    end
+
+    return text
+end
+
+local function getFactorySignFromInstance(instance)
+    local current = instance
+    while current and current ~= workspace do
+        if current:GetAttribute("ItemName") == "FactorySign" then
+            return current
+        end
+
+        current = current.Parent
+    end
+
+    return nil
+end
+
+local function findFactorySignTextLabel(sign)
+    local bestLabel = nil
+    local bestScore = -1
+
+    for _, descendant in ipairs(sign:GetDescendants()) do
+        if descendant:IsA("TextLabel") or descendant:IsA("TextBox") then
+            local score = 0
+            local parent = descendant.Parent
+            local lowerName = string.lower(descendant.Name)
+            local lowerText = string.lower(tostring(descendant.Text or ""))
+
+            if parent and parent:IsA("SurfaceGui") then
+                score += 10
+            end
+
+            if lowerName == "textlabel" or lowerName == "label" or lowerName == "text" then
+                score += 5
+            end
+
+            if lowerText == "text." or lowerText == "text" or lowerText == "factory" then
+                score += 4
+            end
+
+            if score > bestScore then
+                bestScore = score
+                bestLabel = descendant
+            end
+        end
+    end
+
+    return bestLabel
+end
+
+local function getCurrentFactorySignText(sign)
+    local attributeText = sign:GetAttribute("SignText")
+    if type(attributeText) == "string" and attributeText ~= "" then
+        return attributeText
+    end
+
+    local label = findFactorySignTextLabel(sign)
+    if label and type(label.Text) == "string" and label.Text ~= "" then
+        return label.Text
+    end
+
+    return "Text."
+end
+
+local function closeFactorySignEditor()
+    activeFactorySign = nil
+
+    if signEditorFrame then
+        signEditorFrame.Visible = false
+    end
+end
+
+local function submitFactorySignText()
+    if not activeFactorySign or not activeFactorySign.Parent then
+        closeFactorySignEditor()
+        return
+    end
+
+    local text = sanitizeFactorySignText(signEditorTextBox.Text)
+    signEditorTextBox.Text = text
+    signEditorStatus.Text = "Salvataggio..."
+    updateFactorySignTextRemote:FireServer(activeFactorySign, text)
+end
+
+local function createFactorySignEditor()
+    if signEditorFrame then
+        return
+    end
+
+    signEditorFrame = Instance.new("Frame")
+    signEditorFrame.Name = "FactorySignEditor"
+    signEditorFrame.AnchorPoint = Vector2.new(0.5, 1)
+    signEditorFrame.Size = UDim2.new(0, 360, 0, 138)
+    signEditorFrame.Position = UDim2.new(0.5, 0, 1, -118)
+    signEditorFrame.BackgroundColor3 = Color3.fromRGB(28, 32, 36)
+    signEditorFrame.BackgroundTransparency = 0.02
+    signEditorFrame.BorderSizePixel = 0
+    signEditorFrame.Visible = false
+    signEditorFrame.ZIndex = 30
+    signEditorFrame.Parent = screenGui
+
+    local frameCorner = Instance.new("UICorner")
+    frameCorner.CornerRadius = UDim.new(0, 8)
+    frameCorner.Parent = signEditorFrame
+
+    local title = Instance.new("TextLabel")
+    title.Name = "Title"
+    title.Size = UDim2.new(1, -28, 0, 26)
+    title.Position = UDim2.fromOffset(14, 10)
+    title.BackgroundTransparency = 1
+    title.Text = "Factory Sign"
+    title.TextColor3 = Color3.fromRGB(245, 248, 250)
+    title.TextSize = 16
+    title.Font = Enum.Font.GothamBold
+    title.TextXAlignment = Enum.TextXAlignment.Left
+    title.ZIndex = 31
+    title.Parent = signEditorFrame
+
+    signEditorTextBox = Instance.new("TextBox")
+    signEditorTextBox.Name = "SignTextInput"
+    signEditorTextBox.Size = UDim2.new(1, -28, 0, 42)
+    signEditorTextBox.Position = UDim2.fromOffset(14, 42)
+    signEditorTextBox.BackgroundColor3 = Color3.fromRGB(44, 50, 56)
+    signEditorTextBox.BorderSizePixel = 0
+    signEditorTextBox.ClearTextOnFocus = false
+    signEditorTextBox.PlaceholderText = "Testo del cartello"
+    signEditorTextBox.Text = ""
+    signEditorTextBox.TextColor3 = Color3.fromRGB(255, 255, 255)
+    signEditorTextBox.PlaceholderColor3 = Color3.fromRGB(150, 158, 166)
+    signEditorTextBox.TextSize = 16
+    signEditorTextBox.Font = Enum.Font.Gotham
+    signEditorTextBox.TextXAlignment = Enum.TextXAlignment.Left
+    signEditorTextBox.ZIndex = 31
+    signEditorTextBox.Parent = signEditorFrame
+
+    local inputCorner = Instance.new("UICorner")
+    inputCorner.CornerRadius = UDim.new(0, 6)
+    inputCorner.Parent = signEditorTextBox
+
+    signEditorStatus = Instance.new("TextLabel")
+    signEditorStatus.Name = "Status"
+    signEditorStatus.Size = UDim2.new(1, -180, 0, 30)
+    signEditorStatus.Position = UDim2.fromOffset(14, 94)
+    signEditorStatus.BackgroundTransparency = 1
+    signEditorStatus.Text = ""
+    signEditorStatus.TextColor3 = Color3.fromRGB(196, 207, 218)
+    signEditorStatus.TextSize = 12
+    signEditorStatus.Font = Enum.Font.Gotham
+    signEditorStatus.TextXAlignment = Enum.TextXAlignment.Left
+    signEditorStatus.ZIndex = 31
+    signEditorStatus.Parent = signEditorFrame
+
+    local cancelButton = Instance.new("TextButton")
+    cancelButton.Name = "CancelButton"
+    cancelButton.Size = UDim2.new(0, 70, 0, 30)
+    cancelButton.Position = UDim2.new(1, -156, 1, -44)
+    cancelButton.BackgroundColor3 = Color3.fromRGB(62, 68, 74)
+    cancelButton.BorderSizePixel = 0
+    cancelButton.Text = "Annulla"
+    cancelButton.TextColor3 = Color3.fromRGB(235, 240, 246)
+    cancelButton.TextSize = 13
+    cancelButton.Font = Enum.Font.GothamBold
+    cancelButton.ZIndex = 31
+    cancelButton.Parent = signEditorFrame
+
+    local cancelCorner = Instance.new("UICorner")
+    cancelCorner.CornerRadius = UDim.new(0, 6)
+    cancelCorner.Parent = cancelButton
+
+    local saveButton = Instance.new("TextButton")
+    saveButton.Name = "SaveButton"
+    saveButton.Size = UDim2.new(0, 70, 0, 30)
+    saveButton.Position = UDim2.new(1, -82, 1, -44)
+    saveButton.BackgroundColor3 = Color3.fromRGB(62, 142, 88)
+    saveButton.BorderSizePixel = 0
+    saveButton.Text = "Salva"
+    saveButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+    saveButton.TextSize = 13
+    saveButton.Font = Enum.Font.GothamBold
+    saveButton.ZIndex = 31
+    saveButton.Parent = signEditorFrame
+
+    local saveCorner = Instance.new("UICorner")
+    saveCorner.CornerRadius = UDim.new(0, 6)
+    saveCorner.Parent = saveButton
+
+    signEditorTextBox:GetPropertyChangedSignal("Text"):Connect(function()
+        if #signEditorTextBox.Text > MAX_FACTORY_SIGN_TEXT_LENGTH then
+            signEditorTextBox.Text = signEditorTextBox.Text:sub(1, MAX_FACTORY_SIGN_TEXT_LENGTH)
+        elseif signEditorFrame.Visible then
+            signEditorStatus.Text = tostring(#signEditorTextBox.Text) .. "/" .. tostring(MAX_FACTORY_SIGN_TEXT_LENGTH)
+        end
+    end)
+
+    signEditorTextBox.FocusLost:Connect(function(enterPressed)
+        if enterPressed then
+            submitFactorySignText()
+        end
+    end)
+
+    cancelButton.Activated:Connect(closeFactorySignEditor)
+    saveButton.Activated:Connect(submitFactorySignText)
+end
+
+local function showFactorySignEditor(sign)
+    if placementMode or deletionMode then
+        return
+    end
+
+    createFactorySignEditor()
+
+    if itemContextMenu then
+        itemContextMenu.Visible = false
+    end
+
+    activeFactorySign = sign
+    signEditorTextBox.Text = sanitizeFactorySignText(getCurrentFactorySignText(sign))
+    signEditorStatus.Text = tostring(#signEditorTextBox.Text) .. "/" .. tostring(MAX_FACTORY_SIGN_TEXT_LENGTH)
+    signEditorFrame.Visible = true
+    signEditorTextBox:CaptureFocus()
+end
 
 local function hideItemContextMenu()
     if contextMenuTween then
@@ -1587,6 +1917,101 @@ local function rotateContextMenuTarget()
     hideItemContextMenu()
 end
 
+local function isMachineContextTarget(target)
+    local itemName = target and target:GetAttribute("ItemName")
+    return itemName ~= nil and Definitions.GetMachine(itemName) ~= nil
+end
+
+local function updateItemContextMenuContents(target)
+    if not itemContextBillboard or not itemContextMenu then
+        return
+    end
+
+    local rotateButton = itemContextMenu:FindFirstChild("RotateButton")
+    local machinePanel = itemContextMenu:FindFirstChild("MachineInfoPanel")
+    local isMachine = isMachineContextTarget(target)
+
+    if isMachine then
+        itemContextBillboard.Size = UDim2.new(0, 230, 0, 128)
+        if rotateButton then
+            rotateButton.Size = UDim2.new(1, -8, 0, 34)
+            rotateButton.Position = UDim2.new(0, 4, 1, -38)
+        end
+
+        if machinePanel then
+            machinePanel.Visible = true
+
+            local itemName = target:GetAttribute("ItemName")
+            local machineData = Definitions.GetMachine(itemName)
+            local recipeText = target:GetAttribute("MachineRecipeText")
+            local queueText = target:GetAttribute("MachineQueueText")
+            local statusText = target:GetAttribute("MachineStatusText")
+            local progress = math.clamp(tonumber(target:GetAttribute("ProcessingProgress")) or 0, 0, 1)
+
+            if not recipeText or recipeText == "" then
+                if machineData and machineData.type == "processor" then
+                    recipeText = tostring(machineData.inputItem or "Input") .. " -> " .. tostring(machineData.outputItem or "Output")
+                elseif machineData and machineData.type == "producer" then
+                    recipeText = "Produces " .. tostring(machineData.outputItem or "Output")
+                else
+                    recipeText = itemName
+                end
+            end
+
+            if not queueText or queueText == "" then
+                if machineData and machineData.type == "processor" then
+                    local count = tonumber(target:GetAttribute("ProcessingCount")) or 0
+                    local capacity = tonumber(target:GetAttribute("ProcessingCapacity")) or machineData.inputQueueSize or 0
+                    queueText = "Queue " .. tostring(count) .. "/" .. tostring(capacity)
+                else
+                    queueText = ""
+                end
+            end
+
+            if not statusText or statusText == "" then
+                statusText = target:GetAttribute("IsPowered") == false and "No power" or "Ready"
+            end
+
+            local titleLabel = machinePanel:FindFirstChild("MachineTitle")
+            if titleLabel and titleLabel:IsA("TextLabel") then
+                titleLabel.Text = itemName
+            end
+
+            local recipeLabel = machinePanel:FindFirstChild("MachineRecipe")
+            if recipeLabel and recipeLabel:IsA("TextLabel") then
+                recipeLabel.Text = recipeText
+            end
+
+            local queueLabel = machinePanel:FindFirstChild("MachineQueue")
+            if queueLabel and queueLabel:IsA("TextLabel") then
+                queueLabel.Text = queueText
+            end
+
+            local statusLabel = machinePanel:FindFirstChild("MachineStatus")
+            if statusLabel and statusLabel:IsA("TextLabel") then
+                statusLabel.Text = statusText
+                statusLabel.TextColor3 = target:GetAttribute("IsPowered") == false and Color3.fromRGB(255, 126, 96) or Color3.fromRGB(170, 220, 255)
+            end
+
+            local progressBack = machinePanel:FindFirstChild("ProgressBack")
+            local progressFill = progressBack and progressBack:FindFirstChild("ProgressFill")
+            if progressFill and progressFill:IsA("Frame") then
+                progressFill.Size = UDim2.fromScale(progress, 1)
+            end
+        end
+    else
+        itemContextBillboard.Size = UDim2.new(0, 130, 0, 44)
+        if machinePanel then
+            machinePanel.Visible = false
+        end
+
+        if rotateButton then
+            rotateButton.Size = UDim2.new(1, -8, 1, -8)
+            rotateButton.Position = UDim2.new(0, 4, 0, 4)
+        end
+    end
+end
+
 local function createItemContextMenu()
     if itemContextMenu then
         return
@@ -1606,8 +2031,8 @@ local function createItemContextMenu()
     itemContextMenu.AnchorPoint = Vector2.new(0.5, 0.5)
     itemContextMenu.Size = UDim2.new(1, 0, 1, 0)
     itemContextMenu.Position = UDim2.new(0.5, 0, 0.5, 0)
-    itemContextMenu.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
-    itemContextMenu.BackgroundTransparency = 0.05
+    itemContextMenu.BackgroundColor3 = Color3.fromRGB(22, 52, 64)
+    itemContextMenu.BackgroundTransparency = 0.28
     itemContextMenu.BorderSizePixel = 0
     itemContextMenu.Active = true
     itemContextMenu.ZIndex = 10
@@ -1618,11 +2043,90 @@ local function createItemContextMenu()
     menuCorner.CornerRadius = UDim.new(0, 8)
     menuCorner.Parent = itemContextMenu
 
+    local machinePanel = Instance.new("Frame")
+    machinePanel.Name = "MachineInfoPanel"
+    machinePanel.Size = UDim2.new(1, -12, 0, 82)
+    machinePanel.Position = UDim2.fromOffset(6, 6)
+    machinePanel.BackgroundTransparency = 1
+    machinePanel.Visible = false
+    machinePanel.ZIndex = 11
+    machinePanel.Parent = itemContextMenu
+
+    local machineTitle = Instance.new("TextLabel")
+    machineTitle.Name = "MachineTitle"
+    machineTitle.Size = UDim2.new(1, 0, 0, 18)
+    machineTitle.BackgroundTransparency = 1
+    machineTitle.TextColor3 = Color3.fromRGB(245, 248, 250)
+    machineTitle.TextSize = 13
+    machineTitle.Font = Enum.Font.GothamBold
+    machineTitle.TextXAlignment = Enum.TextXAlignment.Left
+    machineTitle.TextTruncate = Enum.TextTruncate.AtEnd
+    machineTitle.ZIndex = 12
+    machineTitle.Parent = machinePanel
+
+    local machineRecipe = Instance.new("TextLabel")
+    machineRecipe.Name = "MachineRecipe"
+    machineRecipe.Size = UDim2.new(1, 0, 0, 18)
+    machineRecipe.Position = UDim2.fromOffset(0, 20)
+    machineRecipe.BackgroundTransparency = 1
+    machineRecipe.TextColor3 = Color3.fromRGB(236, 230, 208)
+    machineRecipe.TextSize = 12
+    machineRecipe.Font = Enum.Font.Gotham
+    machineRecipe.TextXAlignment = Enum.TextXAlignment.Left
+    machineRecipe.TextTruncate = Enum.TextTruncate.AtEnd
+    machineRecipe.ZIndex = 12
+    machineRecipe.Parent = machinePanel
+
+    local machineQueue = Instance.new("TextLabel")
+    machineQueue.Name = "MachineQueue"
+    machineQueue.Size = UDim2.new(0.55, -4, 0, 18)
+    machineQueue.Position = UDim2.fromOffset(0, 40)
+    machineQueue.BackgroundTransparency = 1
+    machineQueue.TextColor3 = Color3.fromRGB(210, 218, 225)
+    machineQueue.TextSize = 12
+    machineQueue.Font = Enum.Font.Gotham
+    machineQueue.TextXAlignment = Enum.TextXAlignment.Left
+    machineQueue.TextTruncate = Enum.TextTruncate.AtEnd
+    machineQueue.ZIndex = 12
+    machineQueue.Parent = machinePanel
+
+    local machineStatus = Instance.new("TextLabel")
+    machineStatus.Name = "MachineStatus"
+    machineStatus.Size = UDim2.new(0.45, -4, 0, 18)
+    machineStatus.Position = UDim2.new(0.55, 4, 0, 40)
+    machineStatus.BackgroundTransparency = 1
+    machineStatus.TextColor3 = Color3.fromRGB(170, 220, 255)
+    machineStatus.TextSize = 12
+    machineStatus.Font = Enum.Font.GothamBold
+    machineStatus.TextXAlignment = Enum.TextXAlignment.Right
+    machineStatus.TextTruncate = Enum.TextTruncate.AtEnd
+    machineStatus.ZIndex = 12
+    machineStatus.Parent = machinePanel
+
+    local progressBack = Instance.new("Frame")
+    progressBack.Name = "ProgressBack"
+    progressBack.Size = UDim2.new(1, 0, 0, 8)
+    progressBack.Position = UDim2.fromOffset(0, 64)
+    progressBack.BackgroundColor3 = Color3.fromRGB(18, 35, 42)
+    progressBack.BackgroundTransparency = 0.32
+    progressBack.BorderSizePixel = 0
+    progressBack.ZIndex = 12
+    progressBack.Parent = machinePanel
+
+    local progressFill = Instance.new("Frame")
+    progressFill.Name = "ProgressFill"
+    progressFill.Size = UDim2.fromScale(0, 1)
+    progressFill.BackgroundColor3 = Color3.fromRGB(84, 205, 190)
+    progressFill.BorderSizePixel = 0
+    progressFill.ZIndex = 13
+    progressFill.Parent = progressBack
+
     local rotateButton = Instance.new("TextButton")
     rotateButton.Name = "RotateButton"
     rotateButton.Size = UDim2.new(1, -8, 1, -8)
     rotateButton.Position = UDim2.new(0, 4, 0, 4)
-    rotateButton.BackgroundColor3 = Color3.fromRGB(70, 70, 70)
+    rotateButton.BackgroundColor3 = Color3.fromRGB(50, 116, 132)
+    rotateButton.BackgroundTransparency = 0.18
     rotateButton.BorderSizePixel = 0
     rotateButton.Active = true
     rotateButton.ZIndex = 11
@@ -1707,6 +2211,7 @@ local function showItemContextMenu(target)
     end
 
     contextMenuTarget = target
+    updateItemContextMenuContents(target)
     updateFlowPreviewForSelectedItem(target)
 
     local finalPosition = UDim2.new(0.5, 0, 0.5, 0)
@@ -1730,13 +2235,13 @@ local function showItemContextMenu(target)
         Enum.EasingDirection.Out
     ), {
         Position = finalPosition,
-        BackgroundTransparency = 0.05,
+        BackgroundTransparency = 0.28,
     })
     contextMenuTween:Play()
 
     if rotateButton then
         TweenService:Create(rotateButton, TweenInfo.new(0.12, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
-            BackgroundTransparency = 0,
+            BackgroundTransparency = 0.18,
             TextTransparency = 0,
         }):Play()
     end
@@ -2284,6 +2789,11 @@ end
 
 -- Handle mouse click
 local function onInputBegan(input, gameProcessed)
+    if input.UserInputType == Enum.UserInputType.Keyboard and input.KeyCode == Enum.KeyCode.Escape and signEditorFrame and signEditorFrame.Visible then
+        closeFactorySignEditor()
+        return
+    end
+
     if input.UserInputType == Enum.UserInputType.MouseButton1 and itemContextMenu and itemContextMenu.Visible and isMouseInsideContextMenu() then
         rotateContextMenuTarget()
         return
@@ -2374,17 +2884,54 @@ end
 
 -- Connect events
 UserInputService.InputBegan:Connect(onInputBegan)
+ProximityPromptService.PromptTriggered:Connect(function(prompt, triggeringPlayer)
+    if (triggeringPlayer and triggeringPlayer ~= player) or prompt.Name ~= "EditFactorySignPrompt" then
+        return
+    end
+
+    local sign = getFactorySignFromInstance(prompt)
+    if sign and sign:GetAttribute("Owner") == player.UserId then
+        showFactorySignEditor(sign)
+    end
+end)
+
 RunService.RenderStepped:Connect(function()
     updateGridIfNeeded()
     updateGhostPosition()
     updateDeletionHover()
     updatePlacedItemHoverMenu()
+    if itemContextMenu and itemContextMenu.Visible and contextMenuTarget then
+        updateItemContextMenuContents(contextMenuTarget)
+    end
 end)
 
 -- Listen for inventory updates (e.g., when shop closes after purchase)
 inventoryUpdatedRemote.OnClientEvent:Connect(function()
     task.wait(0.2) -- Small delay to ensure server data is updated
     refreshInventoryUI()
+end)
+
+updateFactorySignTextRemote.OnClientEvent:Connect(function(success, message, filteredText)
+    if not signEditorFrame or not signEditorFrame.Visible then
+        return
+    end
+
+    signEditorStatus.Text = tostring(message or "")
+    if success then
+        if activeFactorySign and activeFactorySign.Parent and type(filteredText) == "string" then
+            activeFactorySign:SetAttribute("SignText", filteredText)
+            local label = findFactorySignTextLabel(activeFactorySign)
+            if label then
+                label.Text = filteredText
+            end
+        end
+
+        task.delay(0.35, function()
+            if signEditorFrame and signEditorFrame.Visible then
+                closeFactorySignEditor()
+            end
+        end)
+    end
 end)
 
 -- Initial inventory refresh

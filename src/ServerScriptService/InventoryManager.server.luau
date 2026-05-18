@@ -6,6 +6,7 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 local DataStoreService = game:GetService("DataStoreService")
+local TextService = game:GetService("TextService")
 
 -- Import modules
 local PlayerProgress = require(game.ServerScriptService.PlayerProgress)
@@ -96,6 +97,18 @@ local ITEM_VISUAL_ADJUSTMENTS = {
         footprintPadding = 0.82,
         maxHeight = 1.2,
         maxScale = 3,
+    },
+    DecorTree = {
+        footprintPadding = 2,
+        maxScale = 2,
+    },
+    FactorySign = {
+        footprintPadding = 2,
+        maxScale = 2,
+    },
+    StreetLamp = {
+        footprintPadding = 2,
+        maxScale = 2,
     },
 }
 
@@ -334,6 +347,8 @@ local function removeRuntimeArtifacts(model)
     for _, descendant in ipairs(model:GetDescendants()) do
         if descendant:IsA("Sound") or descendant:IsA("Script") or descendant:IsA("LocalScript") then
             descendant:Destroy()
+        elseif descendant:IsA("BillboardGui") and (descendant.Name == "RecipeLabel" or descendant.Name == "ProcessingStatus") then
+            descendant:Destroy()
         end
     end
 end
@@ -343,6 +358,8 @@ for _, template in ipairs(templatesFolder:GetChildren()) do
 end
 templatesFolder.DescendantAdded:Connect(function(descendant)
     if descendant:IsA("Sound") or descendant:IsA("Script") or descendant:IsA("LocalScript") then
+        descendant:Destroy()
+    elseif descendant:IsA("BillboardGui") and (descendant.Name == "RecipeLabel" or descendant.Name == "ProcessingStatus") then
         descendant:Destroy()
     end
 end)
@@ -422,8 +439,14 @@ local placementResultRemote = Instance.new("RemoteEvent")
 placementResultRemote.Name = "PlacementResult"
 placementResultRemote.Parent = ReplicatedStorage
 
+local updateFactorySignTextRemote = Instance.new("RemoteEvent")
+updateFactorySignTextRemote.Name = "UpdateFactorySignText"
+updateFactorySignTextRemote.Parent = ReplicatedStorage
+
 -- Configuration Constants
 local MAX_ITEMS_PER_PLOT = 100
+local DEFAULT_FACTORY_SIGN_TEXT = "Text."
+local MAX_FACTORY_SIGN_TEXT_LENGTH = 32
 
 -- Player data storage
 
@@ -811,25 +834,6 @@ local function createProcessorTemplate(itemName)
     tool.Color = style.accentColor
     tool.Parent = processor
 
-    local billboard = Instance.new("BillboardGui")
-    billboard.Name = "RecipeLabel"
-    billboard.Size = UDim2.fromOffset(150, 32)
-    billboard.StudsOffsetWorldSpace = Vector3.new(0, 3.25, 0)
-    billboard.AlwaysOnTop = true
-    billboard.Parent = base
-
-    local label = Instance.new("TextLabel")
-    label.Name = "Label"
-    label.Size = UDim2.fromScale(1, 1)
-    label.BackgroundTransparency = 0.25
-    label.BackgroundColor3 = Color3.fromRGB(18, 20, 22)
-    label.BorderSizePixel = 0
-    label.Text = tostring(machineData.inputItem) .. " -> " .. tostring(machineData.outputItem)
-    label.TextColor3 = Color3.fromRGB(245, 248, 250)
-    label.TextScaled = true
-    label.Font = Enum.Font.GothamBold
-    label.Parent = billboard
-
     processor.PrimaryPart = base
     processor.Parent = templatesFolder
 
@@ -897,135 +901,11 @@ local function createGeneratorTemplate(itemName)
     return generator
 end
 
-local function createDecorTreeTemplate(itemName)
-    local tree = Instance.new("Model")
-    tree.Name = itemName
-
-    local trunk = Instance.new("Part")
-    trunk.Name = "Trunk"
-    trunk.Size = Vector3.new(1.1, 3.0, 1.1)
-    trunk.CFrame = CFrame.new(0, 1.5, 0)
-    trunk.Anchored = true
-    trunk.CanCollide = true
-    trunk.Material = Enum.Material.Wood
-    trunk.Color = Color3.fromRGB(104, 70, 39)
-    trunk.Parent = tree
-
-    local leaves = Instance.new("Part")
-    leaves.Name = "Leaves"
-    leaves.Shape = Enum.PartType.Ball
-    leaves.Size = Vector3.new(4.4, 3.2, 4.4)
-    leaves.CFrame = CFrame.new(0, 3.75, 0)
-    leaves.Anchored = true
-    leaves.CanCollide = true
-    leaves.Material = Enum.Material.Grass
-    leaves.Color = Color3.fromRGB(62, 138, 64)
-    leaves.Parent = tree
-
-    tree.PrimaryPart = trunk
-    tree.Parent = templatesFolder
-
-    return tree
-end
-
-local function createFactorySignTemplate(itemName)
-    local sign = Instance.new("Model")
-    sign.Name = itemName
-
-    local post = Instance.new("Part")
-    post.Name = "Post"
-    post.Size = Vector3.new(0.45, 3.0, 0.45)
-    post.CFrame = CFrame.new(0, 1.5, 0)
-    post.Anchored = true
-    post.CanCollide = true
-    post.Material = Enum.Material.Metal
-    post.Color = Color3.fromRGB(92, 88, 82)
-    post.Parent = sign
-
-    local board = Instance.new("Part")
-    board.Name = "Board"
-    board.Size = Vector3.new(4.8, 1.8, 0.35)
-    board.CFrame = CFrame.new(0, 2.7, -0.05)
-    board.Anchored = true
-    board.CanCollide = true
-    board.Material = Enum.Material.WoodPlanks
-    board.Color = Color3.fromRGB(126, 85, 46)
-    board.Parent = sign
-
-    local surfaceGui = Instance.new("SurfaceGui")
-    surfaceGui.Name = "SignText"
-    surfaceGui.Face = Enum.NormalId.Front
-    surfaceGui.SizingMode = Enum.SurfaceGuiSizingMode.PixelsPerStud
-    surfaceGui.PixelsPerStud = 32
-    surfaceGui.Parent = board
-
-    local label = Instance.new("TextLabel")
-    label.Name = "Label"
-    label.Size = UDim2.fromScale(1, 1)
-    label.BackgroundTransparency = 1
-    label.Text = "FACTORY"
-    label.TextColor3 = Color3.fromRGB(245, 235, 208)
-    label.TextScaled = true
-    label.Font = Enum.Font.GothamBold
-    label.Parent = surfaceGui
-
-    sign.PrimaryPart = post
-    sign.Parent = templatesFolder
-
-    return sign
-end
-
-local function createStreetLampTemplate(itemName)
-    local lamp = Instance.new("Model")
-    lamp.Name = itemName
-
-    local pole = Instance.new("Part")
-    pole.Name = "Pole"
-    pole.Size = Vector3.new(0.35, 4.4, 0.35)
-    pole.CFrame = CFrame.new(0, 2.2, 0)
-    pole.Anchored = true
-    pole.CanCollide = true
-    pole.Material = Enum.Material.Metal
-    pole.Color = Color3.fromRGB(50, 54, 58)
-    pole.Parent = lamp
-
-    local arm = Instance.new("Part")
-    arm.Name = "Arm"
-    arm.Size = Vector3.new(2.0, 0.28, 0.28)
-    arm.CFrame = CFrame.new(0.85, 4.2, 0)
-    arm.Anchored = true
-    arm.CanCollide = false
-    arm.CanQuery = false
-    arm.CanTouch = false
-    arm.Material = Enum.Material.Metal
-    arm.Color = Color3.fromRGB(50, 54, 58)
-    arm.Parent = lamp
-
-    local bulb = Instance.new("Part")
-    bulb.Name = "Bulb"
-    bulb.Shape = Enum.PartType.Ball
-    bulb.Size = Vector3.new(0.85, 0.85, 0.85)
-    bulb.CFrame = CFrame.new(1.9, 4.05, 0)
-    bulb.Anchored = true
-    bulb.CanCollide = false
-    bulb.CanQuery = false
-    bulb.CanTouch = false
-    bulb.Material = Enum.Material.Neon
-    bulb.Color = Color3.fromRGB(255, 226, 132)
-    bulb.Parent = lamp
-
-    local light = Instance.new("PointLight")
-    light.Name = "Light"
-    light.Brightness = 1.2
-    light.Range = 12
-    light.Color = Color3.fromRGB(255, 226, 160)
-    light.Parent = bulb
-
-    lamp.PrimaryPart = pole
-    lamp.Parent = templatesFolder
-
-    return lamp
-end
+local IMPORTED_DECORATION_TEMPLATES = {
+    DecorTree = true,
+    FactorySign = true,
+    StreetLamp = true,
+}
 
 local function createDecorationTemplate(itemName)
     local existing = templatesFolder:FindFirstChild(itemName)
@@ -1038,12 +918,9 @@ local function createDecorationTemplate(itemName)
         return nil
     end
 
-    if itemName == "DecorTree" then
-        return createDecorTreeTemplate(itemName)
-    elseif itemName == "FactorySign" then
-        return createFactorySignTemplate(itemName)
-    elseif itemName == "StreetLamp" then
-        return createStreetLampTemplate(itemName)
+    if IMPORTED_DECORATION_TEMPLATES[itemName] then
+        warn("[InventoryManager] Missing imported decoration template: " .. itemName)
+        return nil
     end
 
     local decor = Instance.new("Model")
@@ -1063,6 +940,159 @@ local function createDecorationTemplate(itemName)
     decor.Parent = templatesFolder
 
     return decor
+end
+
+local function sanitizeFactorySignText(text)
+    text = tostring(text or "")
+    text = text:gsub("[%c\r\n\t]", " ")
+    text = text:gsub("%s+", " ")
+    text = text:match("^%s*(.-)%s*$") or ""
+
+    if text == "" then
+        return DEFAULT_FACTORY_SIGN_TEXT
+    end
+
+    if #text > MAX_FACTORY_SIGN_TEXT_LENGTH then
+        text = text:sub(1, MAX_FACTORY_SIGN_TEXT_LENGTH)
+    end
+
+    return text
+end
+
+local function filterFactorySignText(player, text)
+    local sanitized = sanitizeFactorySignText(text)
+    local success, filtered = pcall(function()
+        local result = TextService:FilterStringAsync(sanitized, player.UserId)
+        return result:GetNonChatStringForBroadcastAsync()
+    end)
+
+    if success and type(filtered) == "string" and filtered ~= "" then
+        return sanitizeFactorySignText(filtered)
+    end
+
+    warn("[FactorySign] Text filter failed for " .. player.Name .. ": " .. tostring(filtered))
+    return nil
+end
+
+local function getFactorySignModelFromInstance(instance)
+    local current = instance
+    while current and current ~= workspace do
+        if current:GetAttribute("ItemName") == "FactorySign" then
+            return current
+        end
+
+        current = current.Parent
+    end
+
+    return nil
+end
+
+local function findFactorySignTextLabel(sign)
+    local bestLabel = nil
+    local bestScore = -1
+
+    for _, descendant in ipairs(sign:GetDescendants()) do
+        if descendant:IsA("TextLabel") or descendant:IsA("TextBox") then
+            local score = 0
+            local parent = descendant.Parent
+            local lowerName = string.lower(descendant.Name)
+            local lowerText = string.lower(tostring(descendant.Text or ""))
+
+            if parent and parent:IsA("SurfaceGui") then
+                score += 10
+            end
+
+            if lowerName == "textlabel" or lowerName == "label" or lowerName == "text" then
+                score += 5
+            end
+
+            if lowerText == "text." or lowerText == "text" or lowerText == "factory" then
+                score += 4
+            end
+
+            if score > bestScore then
+                bestScore = score
+                bestLabel = descendant
+            end
+        end
+    end
+
+    return bestLabel
+end
+
+local function applyFactorySignText(sign, text)
+    local sanitized = sanitizeFactorySignText(text)
+    sign:SetAttribute("SignText", sanitized)
+
+    local label = findFactorySignTextLabel(sign)
+    if label then
+        label.Text = sanitized
+    else
+        warn("[FactorySign] Missing TextLabel in imported Wood Sign model")
+    end
+end
+
+local function getFactorySignPromptPart(sign)
+    local label = findFactorySignTextLabel(sign)
+    local current = label and label.Parent or nil
+    while current and current ~= sign do
+        if current:IsA("BasePart") then
+            return current
+        end
+
+        current = current.Parent
+    end
+
+    if sign:IsA("Model") and sign.PrimaryPart then
+        return sign.PrimaryPart
+    end
+
+    local bestPart = nil
+    local bestArea = 0
+    for _, descendant in ipairs(sign:GetDescendants()) do
+        if descendant:IsA("BasePart") then
+            local area = descendant.Size.X * descendant.Size.Y
+            if area > bestArea then
+                bestArea = area
+                bestPart = descendant
+            end
+        end
+    end
+
+    return bestPart
+end
+
+local function prepareFactorySign(sign, text, addPrompt)
+    applyFactorySignText(sign, text or sign:GetAttribute("SignText") or DEFAULT_FACTORY_SIGN_TEXT)
+
+    if not addPrompt then
+        return
+    end
+
+    local part = getFactorySignPromptPart(sign)
+    if not part then
+        warn("[FactorySign] Cannot add prompt: no BasePart found")
+        return
+    end
+
+    local prompt = sign:FindFirstChild("EditFactorySignPrompt", true)
+    if prompt and not prompt:IsA("ProximityPrompt") then
+        prompt:Destroy()
+        prompt = nil
+    end
+
+    if not prompt then
+        prompt = Instance.new("ProximityPrompt")
+        prompt.Name = "EditFactorySignPrompt"
+    end
+
+    prompt.ActionText = "Modifica testo"
+    prompt.ObjectText = "Factory Sign"
+    prompt.KeyboardKeyCode = Enum.KeyCode.E
+    prompt.HoldDuration = 0
+    prompt.MaxActivationDistance = 12
+    prompt.RequiresLineOfSight = false
+    prompt.Parent = part
 end
 
 local SELL_ZONE_COLORS = {
@@ -1727,6 +1757,7 @@ local function serializePlacedItem(item)
         cellsX = math.max(1, math.floor(tonumber(item:GetAttribute("CellsX")) or 1)),
         cellsZ = math.max(1, math.floor(tonumber(item:GetAttribute("CellsZ")) or 1)),
         npcName = item:GetAttribute("NPCName") or (itemDef and itemDef.npcName) or nil,
+        signText = itemName == "FactorySign" and sanitizeFactorySignText(item:GetAttribute("SignText")) or nil,
     }
 end
 
@@ -1777,6 +1808,7 @@ local function migrateSavedPlacedItem(itemInfo, plotId)
         cellsX = cellsX,
         cellsZ = cellsZ,
         npcName = itemInfo.npcName or itemInfo.NPCName or (itemDef and itemDef.npcName) or nil,
+        signText = itemName == "FactorySign" and sanitizeFactorySignText(itemInfo.signText or itemInfo.SignText or itemInfo.text) or nil,
     }
 end
 
@@ -1994,6 +2026,10 @@ local function spawnSavedItems(player, itemsData, plotId)
             local npcName = itemInfo.npcName or (itemDef and itemDef.npcName)
             if npcName then
                 newItem:SetAttribute("NPCName", npcName)
+            end
+
+            if itemInfo.itemName == "FactorySign" then
+                prepareFactorySign(newItem, itemInfo.signText, true)
             end
             
             -- Parent to player's items folder
@@ -2241,6 +2277,10 @@ placeItemRemote.OnServerEvent:Connect(function(player, itemName, position, scale
     if placedItemDef and placedItemDef.npcName then
         newItem:SetAttribute("NPCName", placedItemDef.npcName)
     end
+
+    if itemName == "FactorySign" then
+        prepareFactorySign(newItem, nil, true)
+    end
     
     -- Decrease inventory count
     inventoryItem.count = inventoryItem.count - 1
@@ -2385,6 +2425,42 @@ rotateItemRemote.OnServerEvent:Connect(function(player, itemOrPosition)
     item:SetAttribute("CellsZ", cellsZ)
 
     savePlayerData(player)
+end)
+
+updateFactorySignTextRemote.OnServerEvent:Connect(function(player, signInstance, newText)
+    local data = playerData[player]
+    if not data then
+        updateFactorySignTextRemote:FireClient(player, false, "Dati giocatore non pronti.", nil)
+        return
+    end
+
+    local sign = getFactorySignModelFromInstance(signInstance)
+    if not sign or not sign.Parent or sign:GetAttribute("ItemName") ~= "FactorySign" then
+        updateFactorySignTextRemote:FireClient(player, false, "Cartello non valido.", nil)
+        return
+    end
+
+    if not isInstanceOwnedByPlayerPlot(player, sign) or not isTrackedPlacedItem(player, sign) then
+        updateFactorySignTextRemote:FireClient(player, false, "Puoi modificare solo i tuoi cartelli.", nil)
+        return
+    end
+
+    local character = player.Character
+    local rootPart = character and character:FindFirstChild("HumanoidRootPart")
+    if rootPart and (rootPart.Position - sign:GetPivot().Position).Magnitude > 18 then
+        updateFactorySignTextRemote:FireClient(player, false, "Avvicinati al cartello.", nil)
+        return
+    end
+
+    local filteredText = filterFactorySignText(player, newText)
+    if not filteredText then
+        updateFactorySignTextRemote:FireClient(player, false, "Testo non disponibile. Riprova.", nil)
+        return
+    end
+
+    applyFactorySignText(sign, filteredText)
+    savePlayerData(player)
+    updateFactorySignTextRemote:FireClient(player, true, "Testo aggiornato.", filteredText)
 end)
 
 -- Handle get inventory request
