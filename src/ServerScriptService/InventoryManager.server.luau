@@ -94,9 +94,19 @@ local ITEM_VISUAL_ADJUSTMENTS = {
         maxHeight = 1.2,
     },
     CurvedConveyor = {
+        alignToFootprint = true,
         footprintPadding = 0.82,
         maxHeight = 1.2,
         maxScale = 3,
+    },
+    Furnace = {
+        maxScale = 2.5,
+    },
+    StoneMine = {
+        alignToFootprint = true,
+        maxScale = 2,
+        revealTransparentParts = true,
+        visualRotationOffset = 1,
     },
     DecorTree = {
         footprintPadding = 2,
@@ -123,6 +133,17 @@ local function sanitizeScaleFactor(itemName, scaleFactor)
     return scaleFactor
 end
 
+local function shouldAlignModelToFootprint(itemName)
+    local adjustment = ITEM_VISUAL_ADJUSTMENTS[itemName]
+    return adjustment and adjustment.alignToFootprint == true
+end
+
+local function getVisualRotation(itemName, rotation)
+    local adjustment = ITEM_VISUAL_ADJUSTMENTS[itemName]
+    local visualRotationOffset = (adjustment and adjustment.visualRotationOffset) or 0
+    return normalizeRotation(rotation + visualRotationOffset)
+end
+
 local function getCurvedConveyorVisualPart(conveyor)
     local fallbackPart = nil
     local fallbackArea = 0
@@ -147,6 +168,17 @@ local function getCurvedConveyorVisualPart(conveyor)
     end
 
     return fallbackPart
+end
+
+local function revealTransparentVisualParts(item)
+    for _, descendant in ipairs(item:GetDescendants()) do
+        if descendant:IsA("BasePart") then
+            descendant.Transparency = 0
+            descendant.LocalTransparencyModifier = 0
+        elseif descendant:IsA("Decal") or descendant:IsA("Texture") then
+            descendant.Transparency = 0
+        end
+    end
 end
 
 local function ensureCurvedConveyorPivot(conveyor)
@@ -243,8 +275,8 @@ local function normalizeCurvedConveyorGeometry(conveyor)
     return pivotPart
 end
 
-local function pivotModelToFootprint(model, centerPosition, groundY, rotation)
-    model:PivotTo(CFrame.new(centerPosition.X, groundY, centerPosition.Z) * getRotationCFrame(rotation))
+local function pivotModelToFootprint(model, itemName, centerPosition, groundY, rotation)
+    model:PivotTo(CFrame.new(centerPosition.X, groundY, centerPosition.Z) * getRotationCFrame(getVisualRotation(itemName, rotation)))
 
     local visibleCenter, visibleSize = getVisibleBounds(model)
     if visibleCenter and visibleSize then
@@ -269,7 +301,15 @@ end
 
 local function applyItemVisualAdjustments(item, itemName)
     local adjustment = ITEM_VISUAL_ADJUSTMENTS[itemName]
-    if not adjustment or not adjustment.maxHeight then
+    if not adjustment then
+        return
+    end
+
+    if adjustment.revealTransparentParts then
+        revealTransparentVisualParts(item)
+    end
+
+    if not adjustment.maxHeight then
         return
     end
 
@@ -345,7 +385,7 @@ local templatesFolder = sharedFolder:WaitForChild("ItemTemplates")
 -- Clean up template artifacts that should never run from placed/cloned items.
 local function removeRuntimeArtifacts(model)
     for _, descendant in ipairs(model:GetDescendants()) do
-        if descendant:IsA("Sound") or descendant:IsA("Script") or descendant:IsA("LocalScript") then
+        if descendant:IsA("Sound") or descendant:IsA("Script") or descendant:IsA("LocalScript") or descendant:IsA("ModuleScript") then
             descendant:Destroy()
         elseif descendant:IsA("BillboardGui") and (descendant.Name == "RecipeLabel" or descendant.Name == "ProcessingStatus") then
             descendant:Destroy()
@@ -357,7 +397,7 @@ for _, template in ipairs(templatesFolder:GetChildren()) do
     removeRuntimeArtifacts(template)
 end
 templatesFolder.DescendantAdded:Connect(function(descendant)
-    if descendant:IsA("Sound") or descendant:IsA("Script") or descendant:IsA("LocalScript") then
+    if descendant:IsA("Sound") or descendant:IsA("Script") or descendant:IsA("LocalScript") or descendant:IsA("ModuleScript") then
         descendant:Destroy()
     elseif descendant:IsA("BillboardGui") and (descendant.Name == "RecipeLabel" or descendant.Name == "ProcessingStatus") then
         descendant:Destroy()
@@ -733,6 +773,105 @@ local function createSawmillTemplate()
     sawmill.Parent = templatesFolder
 
     return sawmill
+end
+
+local function createStoneMineTemplate()
+    local existing = templatesFolder:FindFirstChild("StoneMine")
+    if existing then
+        return existing
+    end
+
+    local mine = Instance.new("Model")
+    mine.Name = "StoneMine"
+    mine:SetAttribute("GeneratedFallbackTemplate", true)
+
+    local base = Instance.new("Part")
+    base.Name = "Base"
+    base.Size = Vector3.new(7.4, 0.45, 7.4)
+    base.CFrame = CFrame.new(0, 0.225, 0)
+    base.Anchored = true
+    base.CanCollide = true
+    base.Material = Enum.Material.Concrete
+    base.Color = Color3.fromRGB(82, 86, 88)
+    base.Parent = mine
+
+    local mound = Instance.new("Part")
+    mound.Name = "RockMound"
+    mound.Size = Vector3.new(5.8, 2.4, 4.6)
+    mound.CFrame = CFrame.new(0, 1.65, 0.35)
+    mound.Anchored = true
+    mound.CanCollide = true
+    mound.Material = Enum.Material.Slate
+    mound.Color = Color3.fromRGB(95, 100, 102)
+    mound.Parent = mine
+
+    local cap = Instance.new("WedgePart")
+    cap.Name = "UnevenTop"
+    cap.Size = Vector3.new(5.8, 1.6, 4.6)
+    cap.CFrame = CFrame.new(0, 3.25, 0.35) * CFrame.Angles(0, math.rad(90), 0)
+    cap.Anchored = true
+    cap.CanCollide = true
+    cap.Material = Enum.Material.Rock
+    cap.Color = Color3.fromRGB(112, 116, 116)
+    cap.Parent = mine
+
+    local entrance = Instance.new("Part")
+    entrance.Name = "MineOpening"
+    entrance.Size = Vector3.new(2.5, 1.7, 0.18)
+    entrance.CFrame = CFrame.new(0, 1.3, -2.02)
+    entrance.Anchored = true
+    entrance.CanCollide = false
+    entrance.CanQuery = false
+    entrance.CanTouch = false
+    entrance.Material = Enum.Material.SmoothPlastic
+    entrance.Color = Color3.fromRGB(18, 18, 18)
+    entrance.Parent = mine
+
+    local output = Instance.new("Part")
+    output.Name = "StoneOutputChute"
+    output.Size = Vector3.new(1.4, 0.35, 2.2)
+    output.CFrame = CFrame.new(0, 0.85, -3.2)
+    output.Anchored = true
+    output.CanCollide = false
+    output.CanQuery = false
+    output.CanTouch = false
+    output.Material = Enum.Material.Metal
+    output.Color = Color3.fromRGB(136, 144, 148)
+    output.Parent = mine
+
+    local marker = Instance.new("Part")
+    marker.Name = "OutputMarker"
+    marker.Size = Vector3.new(0.85, 0.08, 1.35)
+    marker.CFrame = CFrame.new(0, 1.08, -3.45)
+    marker.Anchored = true
+    marker.CanCollide = false
+    marker.CanQuery = false
+    marker.CanTouch = false
+    marker.Material = Enum.Material.Neon
+    marker.Color = Color3.fromRGB(116, 205, 255)
+    marker.Parent = mine
+
+    for index, position in ipairs({
+        Vector3.new(-2.55, 0.8, 2.25),
+        Vector3.new(2.45, 0.75, 2.1),
+        Vector3.new(-2.25, 0.72, -1.9),
+        Vector3.new(2.35, 0.7, -1.7),
+    }) do
+        local rock = Instance.new("Part")
+        rock.Name = "LooseRock" .. index
+        rock.Size = Vector3.new(1.05, 0.7, 0.95)
+        rock.CFrame = CFrame.new(position) * CFrame.Angles(0, math.rad(index * 23), 0)
+        rock.Anchored = true
+        rock.CanCollide = true
+        rock.Material = Enum.Material.Rock
+        rock.Color = Color3.fromRGB(105, 110, 112)
+        rock.Parent = mine
+    end
+
+    mine.PrimaryPart = base
+    mine.Parent = templatesFolder
+
+    return mine
 end
 
 local PROCESSOR_TEMPLATE_STYLES = {
@@ -1167,6 +1306,10 @@ local function createSellZoneTemplate(itemName)
 end
 
 local function ensureItemTemplate(itemName)
+    if itemName == "StoneMine" then
+        return createStoneMineTemplate()
+    end
+
     local template = templatesFolder:FindFirstChild(itemName)
     if template then
         return template
@@ -2004,10 +2147,10 @@ local function spawnSavedItems(player, itemsData, plotId)
             local plotTopY = plotInfo.position.Y + plotInfo.size.Y / 2
             local footprintCenter = getFootprintCenter(cellX, cellZ, cellsX, cellsZ, plotInfo, plotTopY)
             local _, size = newItem:GetBoundingBox()
-            local position = Vector3.new(footprintCenter.X, plotTopY + getAdjustedItemHeight(itemInfo.itemName, size.Y * scaleFactor) / 2, footprintCenter.Z)
+            local position = Vector3.new(footprintCenter.X, plotTopY + getAdjustedItemHeight(itemInfo.itemName, size.Y) / 2, footprintCenter.Z)
 
-            if itemInfo.itemName == "CurvedConveyor" then
-                pivotModelToFootprint(newItem, footprintCenter, plotTopY, rotation)
+            if shouldAlignModelToFootprint(itemInfo.itemName) then
+                pivotModelToFootprint(newItem, itemInfo.itemName, footprintCenter, plotTopY, rotation)
             else
                 newItem:PivotTo(CFrame.new(position) * getRotationCFrame(rotation))
             end
@@ -2257,8 +2400,8 @@ placeItemRemote.OnServerEvent:Connect(function(player, itemName, position, scale
         end
     end
     
-    if itemName == "CurvedConveyor" then
-        pivotModelToFootprint(newItem, footprintCenter, plotTopY, rotation)
+    if shouldAlignModelToFootprint(itemName) then
+        pivotModelToFootprint(newItem, itemName, footprintCenter, plotTopY, rotation)
     else
         newItem:PivotTo(CFrame.new(position) * getRotationCFrame(rotation))
     end
@@ -2415,8 +2558,8 @@ rotateItemRemote.OnServerEvent:Connect(function(player, itemOrPosition)
         nextPosition = Vector3.new(nextFootprintCenter.X, pivot.Position.Y, nextFootprintCenter.Z)
     end
 
-    if itemName == "CurvedConveyor" and nextFootprintCenter and nextGroundY then
-        pivotModelToFootprint(item, nextFootprintCenter, nextGroundY, nextRotation)
+    if shouldAlignModelToFootprint(itemName) and nextFootprintCenter and nextGroundY then
+        pivotModelToFootprint(item, itemName, nextFootprintCenter, nextGroundY, nextRotation)
     else
         item:PivotTo(CFrame.new(nextPosition) * getRotationCFrame(nextRotation))
     end

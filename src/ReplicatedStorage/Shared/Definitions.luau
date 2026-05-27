@@ -206,6 +206,15 @@ local ITEMS = {
 		isMachine = true,
 		isProduction = false,
 	},
+	StoneMine = {
+		name = "StoneMine",
+		icon = "SM",
+		category = "machine",
+		cost = 100,
+		type = "producer",
+		isMachine = true,
+		isProduction = false,
+	},
 	Sawmill = {
 		name = "Sawmill",
 		icon = "🏭",
@@ -266,6 +275,15 @@ local MACHINES = {
 		outputRotationOffset = 3,
 		powerRequired = 15,
 	},
+	StoneMine = {
+		name = "StoneMine",
+		type = "producer",
+		outputItem = "Stone",
+		outputRate = 1,
+		outputFrequency = 6,
+		outputRotationOffset = 3,
+		powerRequired = 12,
+	},
 
 	-- Processor machines (transform items)
 	Sawmill = {
@@ -301,6 +319,7 @@ local MACHINES = {
 		type = "processor",
 		inputItem = "IronOre",
 		outputItem = "IronIngot",
+		outputRotationOffset = 3,
 		processingTime = 5,
 		inputQueueSize = 2,
 		powerRequired = 15,

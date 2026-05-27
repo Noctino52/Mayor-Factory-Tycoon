@@ -18,6 +18,7 @@ local ITEM_MAX_BOUNDS = {
     IronOre = Vector3.new(1.05, 0.75, 1.05),
     Plank = Vector3.new(1.35, 0.45, 1.35),
     Beam = Vector3.new(1.5, 0.45, 0.65),
+    Stone = Vector3.new(0.85, 0.65, 0.85),
     StoneBlock = Vector3.new(0.9, 0.75, 0.9),
     IronIngot = Vector3.new(1.1, 0.45, 0.55),
 }

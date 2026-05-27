@@ -201,9 +201,20 @@ local ITEM_VISUAL_ADJUSTMENTS = {
         maxHeight = 1.2,
     },
     CurvedConveyor = {
+        alignToFootprint = true,
         footprintPadding = 0.82,
         maxHeight = 1.2,
         maxScale = 3,
+    },
+    Furnace = {
+        footprintPadding = 1.25,
+        maxScale = 2.5,
+    },
+    StoneMine = {
+        alignToFootprint = true,
+        maxScale = 2,
+        revealTransparentParts = true,
+        visualRotationOffset = 1,
     },
     DecorTree = {
         footprintPadding = 2,
@@ -222,6 +233,28 @@ local ITEM_VISUAL_ADJUSTMENTS = {
 local function getItemFootprintPadding(itemName)
     local adjustment = ITEM_VISUAL_ADJUSTMENTS[itemName]
     return (adjustment and adjustment.footprintPadding) or 1
+end
+
+local function shouldAlignModelToFootprint(itemName)
+    local adjustment = ITEM_VISUAL_ADJUSTMENTS[itemName]
+    return adjustment and adjustment.alignToFootprint == true
+end
+
+local function getVisualRotation(itemName, rotation)
+    local adjustment = ITEM_VISUAL_ADJUSTMENTS[itemName]
+    local visualRotationOffset = (adjustment and adjustment.visualRotationOffset) or 0
+    return ((rotation or 0) + visualRotationOffset) % 4
+end
+
+local function revealTransparentVisualParts(item)
+    for _, descendant in ipairs(item:GetDescendants()) do
+        if descendant:IsA("BasePart") then
+            descendant.Transparency = 0
+            descendant.LocalTransparencyModifier = 0
+        elseif descendant:IsA("Decal") or descendant:IsA("Texture") then
+            descendant.Transparency = 0
+        end
+    end
 end
 
 local function getCurvedConveyorVisualPart(conveyor)
@@ -346,7 +379,15 @@ end
 
 local function applyItemVisualAdjustments(item, itemName)
     local adjustment = ITEM_VISUAL_ADJUSTMENTS[itemName]
-    if not adjustment or not adjustment.maxHeight then
+    if not adjustment then
+        return
+    end
+
+    if adjustment.revealTransparentParts then
+        revealTransparentVisualParts(item)
+    end
+
+    if not adjustment.maxHeight then
         return
     end
 
@@ -395,8 +436,8 @@ local function prepareCurvedConveyorVisuals(item)
     styleCurvedConveyorBase(item)
 end
 
-local function pivotModelToFootprint(model, centerPosition, groundY, rotation)
-    model:PivotTo(CFrame.new(centerPosition.X, groundY, centerPosition.Z) * getRotationCFrame(rotation))
+local function pivotModelToFootprint(model, itemName, centerPosition, groundY, rotation)
+    model:PivotTo(CFrame.new(centerPosition.X, groundY, centerPosition.Z) * getRotationCFrame(getVisualRotation(itemName, rotation)))
 
     local visibleCenter, visibleSize = getVisibleBounds(model)
     if visibleCenter and visibleSize then
@@ -1907,8 +1948,8 @@ local function rotateContextMenuTarget()
         contextMenuTarget:SetAttribute("Rotation", nextRotation)
         contextMenuTarget:SetAttribute("CellsX", cellsX)
         contextMenuTarget:SetAttribute("CellsZ", cellsZ)
-        if contextMenuTarget:GetAttribute("ItemName") == "CurvedConveyor" and nextFootprintCenter and nextGroundY then
-            pivotModelToFootprint(contextMenuTarget, nextFootprintCenter, nextGroundY, nextRotation)
+        if shouldAlignModelToFootprint(contextMenuTarget:GetAttribute("ItemName")) and nextFootprintCenter and nextGroundY then
+            pivotModelToFootprint(contextMenuTarget, contextMenuTarget:GetAttribute("ItemName"), nextFootprintCenter, nextGroundY, nextRotation)
         else
             contextMenuTarget:PivotTo(CFrame.new(nextPosition) * getRotationCFrame(nextRotation))
         end
@@ -2697,8 +2738,8 @@ local function updateGhostPosition()
             local worldPos = getFootprintCenter(cellX, cellZ, cellsX, cellsZ, plotInfo, gridUnit)
             
             canPlace = true
-            if selectedItem == "CurvedConveyor" then
-                pivotModelToFootprint(ghostItem, worldPos, worldPos.Y, placementRotation)
+            if shouldAlignModelToFootprint(selectedItem) then
+                pivotModelToFootprint(ghostItem, selectedItem, worldPos, worldPos.Y, placementRotation)
             else
                 local itemHeight = getItemHeight(ghostItem)
                 local finalY = worldPos.Y + itemHeight / 2
