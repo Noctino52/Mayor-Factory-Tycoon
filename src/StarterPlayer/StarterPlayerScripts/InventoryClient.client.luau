@@ -283,6 +283,9 @@ local ITEM_VISUAL_ADJUSTMENTS = {
     CrateAssembler = {
         alignToFootprint = true,
     },
+    Sawmill = {
+        alignToFootprint = true,
+    },
     DecorTree = {
         footprintPadding = 2,
         maxScale = 2,

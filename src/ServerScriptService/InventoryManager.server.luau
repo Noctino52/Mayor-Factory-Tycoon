@@ -115,6 +115,9 @@ local ITEM_VISUAL_ADJUSTMENTS = {
     CrateAssembler = {
         alignToFootprint = true,
     },
+    Sawmill = {
+        alignToFootprint = true,
+    },
     DecorTree = {
         footprintPadding = 2,
         maxScale = 2,
@@ -798,89 +801,236 @@ local function createSawmillTemplate()
     local sawmill = Instance.new("Model")
     sawmill.Name = "Sawmill"
 
-    createMachineBase(sawmill, Enum.Material.WoodPlanks, Color3.fromRGB(118, 82, 48))
+    -- Thin structural member between two points, used for diagonal braces
+    -- and hoses so the frame reads as welded/bolted steel instead of a box
+    local function addStrut(name, p1, p2, thickness, material, color)
+        local mid = (p1 + p2) / 2
+        local length = (p2 - p1).Magnitude
+        local strut = Instance.new("Part")
+        strut.Name = name
+        strut.Size = Vector3.new(thickness, length, thickness)
+        strut.CFrame = CFrame.new(mid, p2) * CFrame.Angles(math.rad(90), 0, 0)
+        strut.Anchored = true
+        strut.CanCollide = false
+        strut.CanQuery = false
+        strut.CanTouch = false
+        strut.Material = material
+        strut.Color = color
+        strut.Parent = sawmill
+        return strut
+    end
 
-    local body = Instance.new("Part")
-    body.Name = "Body"
-    body.Size = Vector3.new(4.0, 1.8, 3.0)
-    body.CFrame = CFrame.new(0, 1.35, 0)
-    body.Anchored = true
-    body.CanCollide = true
-    body.Material = Enum.Material.WoodPlanks
-    body.Color = Color3.fromRGB(140, 100, 58)
-    body.Parent = sawmill
+    createMachineBase(sawmill, Enum.Material.Concrete, Color3.fromRGB(78, 80, 82))
 
-    -- Dark backing panel so the saw blade reads clearly against the wood body
-    local bladeBacking = Instance.new("Part")
-    bladeBacking.Name = "BladeBacking"
-    bladeBacking.Size = Vector3.new(1.7, 1.7, 0.1)
-    bladeBacking.CFrame = CFrame.new(0, 1.55, 1.45)
-    bladeBacking.Anchored = true
-    bladeBacking.CanCollide = false
-    bladeBacking.CanQuery = false
-    bladeBacking.CanTouch = false
-    bladeBacking.Material = Enum.Material.SmoothPlastic
-    bladeBacking.Color = Color3.fromRGB(28, 26, 24)
-    bladeBacking.Parent = sawmill
+    -- Rail bed the Log rides along while it's milled
+    for index, offsetZ in ipairs({ -0.9, 0.9 }) do
+        local rail = Instance.new("Part")
+        rail.Name = "Rail" .. index
+        rail.Size = Vector3.new(5.0, 0.15, 0.22)
+        rail.CFrame = CFrame.new(0, 0.525, offsetZ)
+        rail.Anchored = true
+        rail.CanCollide = false
+        rail.CanQuery = false
+        rail.CanTouch = false
+        rail.Material = Enum.Material.Metal
+        rail.Color = Color3.fromRGB(40, 40, 44)
+        rail.Parent = sawmill
+    end
 
-    local blade = Instance.new("Part")
-    blade.Name = "Blade"
-    blade.Shape = Enum.PartType.Cylinder
-    blade.Size = Vector3.new(0.15, 1.5, 1.5)
-    blade.CFrame = CFrame.new(0, 1.55, 1.51) * CFrame.Angles(0, math.rad(90), 0)
-    blade.Anchored = true
-    blade.CanCollide = false
-    blade.CanQuery = false
-    blade.CanTouch = false
-    blade.Material = Enum.Material.Metal
-    blade.Color = Color3.fromRGB(205, 210, 212)
-    blade.Parent = sawmill
+    -- Striped transport rollers across the bed, like the hazard-striped
+    -- rollers a real log mill carriage rides on
+    local ROLLER_STRIPE_COLORS = {
+        Color3.fromRGB(28, 26, 24),
+        Color3.fromRGB(235, 200, 40),
+    }
+    for rollerIndex, rollerX in ipairs({ -1.5, 0, 1.5 }) do
+        for segmentIndex, segmentZ in ipairs({ -0.8, -0.4, 0, 0.4, 0.8 }) do
+            local segment = Instance.new("Part")
+            segment.Name = "Roller" .. rollerIndex .. "Segment" .. segmentIndex
+            segment.Shape = Enum.PartType.Cylinder
+            segment.Size = Vector3.new(0.4, 0.32, 0.32)
+            segment.CFrame = CFrame.new(rollerX, 0.685, segmentZ) * CFrame.Angles(0, math.rad(90), 0)
+            segment.Anchored = true
+            segment.CanCollide = false
+            segment.CanQuery = false
+            segment.CanTouch = false
+            segment.Material = Enum.Material.Metal
+            segment.Color = ROLLER_STRIPE_COLORS[(segmentIndex % 2) + 1]
+            segment.Parent = sawmill
+        end
 
-    local bladeHub = Instance.new("Part")
-    bladeHub.Name = "BladeHub"
-    bladeHub.Shape = Enum.PartType.Cylinder
-    bladeHub.Size = Vector3.new(0.18, 0.32, 0.32)
-    bladeHub.CFrame = CFrame.new(0, 1.55, 1.53) * CFrame.Angles(0, math.rad(90), 0)
-    bladeHub.Anchored = true
-    bladeHub.CanCollide = false
-    bladeHub.CanQuery = false
-    bladeHub.CanTouch = false
-    bladeHub.Material = Enum.Material.Metal
-    bladeHub.Color = Color3.fromRGB(70, 74, 78)
-    bladeHub.Parent = sawmill
+        for endIndex, endZ in ipairs({ -0.98, 0.98 }) do
+            local bracket = Instance.new("Part")
+            bracket.Name = "RollerBracket" .. rollerIndex .. endIndex
+            bracket.Size = Vector3.new(0.22, 0.3, 0.14)
+            bracket.CFrame = CFrame.new(rollerX, 0.6, endZ)
+            bracket.Anchored = true
+            bracket.CanCollide = false
+            bracket.CanQuery = false
+            bracket.CanTouch = false
+            bracket.Material = Enum.Material.Metal
+            bracket.Color = Color3.fromRGB(52, 54, 58)
+            bracket.Parent = sawmill
+        end
+    end
+
+    -- Red gantry frame straddling the rail bed, like a bandsaw mill head
+    local gantryColor = Color3.fromRGB(176, 32, 32)
+    for index, offset in ipairs({
+        Vector3.new(-0.6, -1.1),
+        Vector3.new(0.6, -1.1),
+        Vector3.new(-0.6, 1.1),
+        Vector3.new(0.6, 1.1),
+    }) do
+        local post = Instance.new("Part")
+        post.Name = "GantryPost" .. index
+        post.Size = Vector3.new(0.25, 2.8, 0.25)
+        post.CFrame = CFrame.new(offset.X, 1.85, offset.Y)
+        post.Anchored = true
+        post.CanCollide = true
+        post.Material = Enum.Material.Metal
+        post.Color = gantryColor
+        post.Parent = sawmill
+
+        for flangeIndex, flangeY in ipairs({ 0.45, 3.25 }) do
+            local flange = Instance.new("Part")
+            flange.Name = "PostFlange" .. index .. flangeIndex
+            flange.Size = Vector3.new(0.46, 0.06, 0.46)
+            flange.CFrame = CFrame.new(offset.X, flangeY, offset.Y)
+            flange.Anchored = true
+            flange.CanCollide = false
+            flange.CanQuery = false
+            flange.CanTouch = false
+            flange.Material = Enum.Material.DiamondPlate
+            flange.Color = Color3.fromRGB(50, 52, 56)
+            flange.Parent = sawmill
+        end
+    end
+
+    -- Diagonal cross-braces on the front and back faces, like welded gussets
+    for index, faceZ in ipairs({ -1.1, 1.1 }) do
+        addStrut(
+            "CrossBrace" .. index,
+            Vector3.new(-0.6, 0.9, faceZ),
+            Vector3.new(0.6, 3.25, faceZ),
+            0.1,
+            Enum.Material.Metal,
+            Color3.fromRGB(120, 24, 24)
+        )
+    end
+
+    for index, offsetZ in ipairs({ -1.1, 1.1 }) do
+        local rail = Instance.new("Part")
+        rail.Name = "TopFrameSide" .. index
+        rail.Size = Vector3.new(1.4, 0.2, 0.2)
+        rail.CFrame = CFrame.new(0, 3.25, offsetZ)
+        rail.Anchored = true
+        rail.CanCollide = false
+        rail.CanQuery = false
+        rail.CanTouch = false
+        rail.Material = Enum.Material.Metal
+        rail.Color = gantryColor
+        rail.Parent = sawmill
+    end
+
+    for index, offsetX in ipairs({ -0.6, 0.6 }) do
+        local rail = Instance.new("Part")
+        rail.Name = "TopFrameEnd" .. index
+        rail.Size = Vector3.new(0.2, 0.2, 2.4)
+        rail.CFrame = CFrame.new(offsetX, 3.25, 0)
+        rail.Anchored = true
+        rail.CanCollide = false
+        rail.CanQuery = false
+        rail.CanTouch = false
+        rail.Material = Enum.Material.Metal
+        rail.Color = gantryColor
+        rail.Parent = sawmill
+    end
+
+    -- Yellow-striped hydraulic guides on the front posts
+    for index, offsetX in ipairs({ -0.6, 0.6 }) do
+        local guide = Instance.new("Part")
+        guide.Name = "SafetyGuide" .. index
+        guide.Size = Vector3.new(0.32, 2.4, 0.12)
+        guide.CFrame = CFrame.new(offsetX, 1.65, -1.16)
+        guide.Anchored = true
+        guide.CanCollide = false
+        guide.CanQuery = false
+        guide.CanTouch = false
+        guide.Material = Enum.Material.Metal
+        guide.Color = Color3.fromRGB(235, 200, 40)
+        guide.Parent = sawmill
+    end
+
+    -- Vertical bandsaw blade loop at the center of the gantry
+    for index, y in ipairs({ 2.95, 0.9 }) do
+        local wheel = Instance.new("Part")
+        wheel.Name = "BladeWheel" .. index
+        wheel.Shape = Enum.PartType.Cylinder
+        wheel.Size = Vector3.new(0.15, 0.42, 0.42)
+        wheel.CFrame = CFrame.new(0, y, 0) * CFrame.Angles(0, math.rad(90), 0)
+        wheel.Anchored = true
+        wheel.CanCollide = false
+        wheel.CanQuery = false
+        wheel.CanTouch = false
+        wheel.Material = Enum.Material.Metal
+        wheel.Color = Color3.fromRGB(200, 205, 208)
+        wheel.Parent = sawmill
+    end
+
+    local bladeBand = Instance.new("Part")
+    bladeBand.Name = "BladeBand"
+    bladeBand.Size = Vector3.new(0.04, 2.0, 0.02)
+    bladeBand.CFrame = CFrame.new(0, 1.925, -0.02)
+    bladeBand.Anchored = true
+    bladeBand.CanCollide = false
+    bladeBand.CanQuery = false
+    bladeBand.CanTouch = false
+    bladeBand.Material = Enum.Material.Metal
+    bladeBand.Color = Color3.fromRGB(230, 235, 238)
+    bladeBand.Parent = sawmill
+
+    -- Engine/control box on top of the frame
+    local motorBox = Instance.new("Part")
+    motorBox.Name = "MotorBox"
+    motorBox.Size = Vector3.new(0.9, 0.55, 0.65)
+    motorBox.CFrame = CFrame.new(0.3, 3.525, 0)
+    motorBox.Anchored = true
+    motorBox.CanCollide = false
+    motorBox.CanQuery = false
+    motorBox.CanTouch = false
+    motorBox.Material = Enum.Material.SmoothPlastic
+    motorBox.Color = Color3.fromRGB(222, 218, 205)
+    motorBox.Parent = sawmill
+
+    local motorBoxCap = Instance.new("Part")
+    motorBoxCap.Name = "MotorBoxCap"
+    motorBoxCap.Size = Vector3.new(0.94, 0.1, 0.69)
+    motorBoxCap.CFrame = CFrame.new(0.3, 3.85, 0)
+    motorBoxCap.Anchored = true
+    motorBoxCap.CanCollide = false
+    motorBoxCap.CanQuery = false
+    motorBoxCap.CanTouch = false
+    motorBoxCap.Material = Enum.Material.Metal
+    motorBoxCap.Color = Color3.fromRGB(40, 40, 42)
+    motorBoxCap.Parent = sawmill
+
+    -- Hydraulic hose running from the motor down to the blade carriage
+    addStrut(
+        "HydraulicHose",
+        Vector3.new(0.05, 3.35, 0.1),
+        Vector3.new(0, 2.85, 0.06),
+        0.06,
+        Enum.Material.SmoothPlastic,
+        Color3.fromRGB(24, 24, 26)
+    )
 
     -- Input mouth shaped to fit the Log, output slot shaped to fit the Plank
     local inputItem = machineData and machineData.inputItem or "Log"
     local outputItem = machineData and machineData.outputItem or "Plank"
-    local inputSize = getItemVisualSize(inputItem)
-    local outputSize = getItemVisualSize(outputItem)
 
-    createFlowSlot(sawmill, "InputSlot", inputItem, -2.05, 1.05, Color3.fromRGB(22, 20, 18), false)
-    createFlowSlot(sawmill, "OutputSlot", outputItem, 2.05, 1.05, Color3.fromRGB(235, 190, 110), true)
-
-    local inputLedge = Instance.new("Part")
-    inputLedge.Name = "InputLedge"
-    inputLedge.Size = Vector3.new(0.7, 0.3, inputSize.Z + 0.3)
-    inputLedge.CFrame = CFrame.new(-2.6, 1.05, 0)
-    inputLedge.Anchored = true
-    inputLedge.CanCollide = false
-    inputLedge.CanQuery = false
-    inputLedge.CanTouch = false
-    inputLedge.Material = Enum.Material.Metal
-    inputLedge.Color = Color3.fromRGB(56, 58, 62)
-    inputLedge.Parent = sawmill
-
-    local outputLedge = Instance.new("Part")
-    outputLedge.Name = "OutputLedge"
-    outputLedge.Size = Vector3.new(0.7, 0.3, outputSize.Z + 0.3)
-    outputLedge.CFrame = CFrame.new(2.6, 1.05, 0)
-    outputLedge.Anchored = true
-    outputLedge.CanCollide = false
-    outputLedge.CanQuery = false
-    outputLedge.CanTouch = false
-    outputLedge.Material = Enum.Material.Metal
-    outputLedge.Color = Color3.fromRGB(180, 140, 76)
-    outputLedge.Parent = sawmill
+    createFlowSlot(sawmill, "InputSlot", inputItem, -2.5, 1.05, Color3.fromRGB(22, 20, 18), false)
+    createFlowSlot(sawmill, "OutputSlot", outputItem, 2.5, 1.05, Color3.fromRGB(235, 190, 110), true)
 
     sawmill.Parent = templatesFolder
 
