@@ -34,6 +34,22 @@ local function acceptsItem(npcData, itemName)
     return false
 end
 
+local function getSaleRewards(itemData, npcData, itemName)
+    local itemReward = npcData.itemRewards and npcData.itemRewards[itemName]
+    local moneyReward = itemReward and tonumber(itemReward.money)
+    local reputationReward = itemReward and tonumber(itemReward.reputation)
+
+    if moneyReward == nil then
+        moneyReward = math.floor((itemData.value or 0) * (npcData.basePriceMultiplier or 1))
+    end
+
+    if reputationReward == nil then
+        reputationReward = npcData.baseReputationReward or 0
+    end
+
+    return moneyReward, reputationReward
+end
+
 local function isPlacedItemOwnedByPlayer(player, item)
     return player and item and item:GetAttribute("Owner") == player.UserId and item:GetAttribute("PlotId") ~= nil
 end
@@ -185,9 +201,7 @@ function SellSystem.SellItem(player, itemName, cellX, cellZ, productionItem)
         return false, "NPC does not buy this item"
     end
 
-    local basePrice = itemData.value or 0
-    local sellingPrice = math.floor(basePrice * (npcData.basePriceMultiplier or 1))
-    local reputationReward = npcData.baseReputationReward or 0
+    local sellingPrice, reputationReward = getSaleRewards(itemData, npcData, itemName)
 
     PlayerProgress.AddMoney(player, sellingPrice)
     PlayerProgress.RecordSale(player, itemName, zone.npcName, 1)

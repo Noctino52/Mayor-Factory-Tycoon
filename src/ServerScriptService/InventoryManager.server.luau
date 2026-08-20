@@ -881,6 +881,12 @@ local PROCESSOR_TEMPLATE_STYLES = {
         accentColor = Color3.fromRGB(235, 185, 92),
         material = Enum.Material.WoodPlanks,
     },
+    CrateAssembler = {
+        baseColor = Color3.fromRGB(108, 72, 38),
+        bodyColor = Color3.fromRGB(74, 82, 78),
+        accentColor = Color3.fromRGB(210, 154, 82),
+        material = Enum.Material.WoodPlanks,
+    },
     StoneCutter = {
         baseColor = Color3.fromRGB(92, 96, 100),
         bodyColor = Color3.fromRGB(112, 118, 124),
@@ -961,10 +967,23 @@ local function createProcessorTemplate(itemName)
     outputChute.Color = style.accentColor
     outputChute.Parent = processor
 
-    local tool = Instance.new(itemName == "Furnace" and "Part" or "WedgePart")
-    tool.Name = itemName == "Furnace" and "Firebox" or "CutterHead"
-    tool.Size = itemName == "Furnace" and Vector3.new(2.5, 1.0, 2.0) or Vector3.new(2.2, 0.7, 2.2)
-    tool.CFrame = itemName == "Furnace" and CFrame.new(0, 2.25, 0) or CFrame.new(0.3, 2.35, 0) * CFrame.Angles(0, 0, math.rad(-90))
+    local tool
+    if itemName == "Furnace" then
+        tool = Instance.new("Part")
+        tool.Name = "Firebox"
+        tool.Size = Vector3.new(2.5, 1.0, 2.0)
+        tool.CFrame = CFrame.new(0, 2.25, 0)
+    elseif itemName == "CrateAssembler" then
+        tool = Instance.new("Part")
+        tool.Name = "CratePress"
+        tool.Size = Vector3.new(2.35, 1.35, 2.35)
+        tool.CFrame = CFrame.new(0.35, 2.15, 0)
+    else
+        tool = Instance.new("WedgePart")
+        tool.Name = "CutterHead"
+        tool.Size = Vector3.new(2.2, 0.7, 2.2)
+        tool.CFrame = CFrame.new(0.3, 2.35, 0) * CFrame.Angles(0, 0, math.rad(-90))
+    end
     tool.Anchored = true
     tool.CanCollide = false
     tool.CanQuery = false
@@ -972,6 +991,22 @@ local function createProcessorTemplate(itemName)
     tool.Material = itemName == "Furnace" and Enum.Material.Neon or Enum.Material.Metal
     tool.Color = style.accentColor
     tool.Parent = processor
+
+    if itemName == "CrateAssembler" then
+        for index, offset in ipairs({ -0.65, 0.65 }) do
+            local band = Instance.new("Part")
+            band.Name = "CrateBand" .. tostring(index)
+            band.Size = Vector3.new(2.5, 0.18, 0.18)
+            band.CFrame = CFrame.new(0.35, 2.15, offset)
+            band.Anchored = true
+            band.CanCollide = false
+            band.CanQuery = false
+            band.CanTouch = false
+            band.Material = Enum.Material.Metal
+            band.Color = Color3.fromRGB(74, 50, 30)
+            band.Parent = processor
+        end
+    end
 
     processor.PrimaryPart = base
     processor.Parent = templatesFolder

@@ -124,16 +124,8 @@ local function getRecipeInputCount(machineData)
     return machineData.inputCount or machineData.inputQuantity or machineData.inputRequired or 1
 end
 
-local function getNextProcessingItem(machine)
-    local nextItem = nil
-
-    for _, inputItem in ipairs(machine.inputQueue) do
-        if not nextItem or inputItem.receivedAt < nextItem.receivedAt then
-            nextItem = inputItem
-        end
-    end
-
-    return nextItem
+local function hasEnoughInputForRecipe(machine, machineData)
+    return #machine.inputQueue >= getRecipeInputCount(machineData)
 end
 
 local function isInstancePowered(instance, machineData)
@@ -187,13 +179,12 @@ local function updateProcessingVisual(machine)
     local outputItem = machineData and machineData.outputItem or "Output"
     local recipeInputCount = machineData and getRecipeInputCount(machineData) or 1
     local receivedCount = math.min(#machine.inputQueue, recipeInputCount)
-    local processingItem = getNextProcessingItem(machine)
     local processingTime = machineData and machineData.processingTime or 1
     local progress = 0
     local remaining = nil
 
-    if processingItem then
-        local elapsed = math.max(0, tick() - processingItem.receivedAt)
+    if machineData and hasEnoughInputForRecipe(machine, machineData) and machine.processingStartedAt then
+        local elapsed = math.max(0, tick() - machine.processingStartedAt)
         progress = math.clamp(elapsed / processingTime, 0, 1)
         remaining = math.max(0, processingTime - elapsed)
     end
@@ -264,34 +255,43 @@ end
 local function updateProcessor(player, machine, machineData, now)
     updateProcessingVisual(machine)
 
-    if #machine.inputQueue <= 0 then
+    if not hasEnoughInputForRecipe(machine, machineData) then
+        machine.processingStartedAt = nil
         return
     end
 
-    for index = #machine.inputQueue, 1, -1 do
-        local inputItem = machine.inputQueue[index]
-        local processingTime = machineData.processingTime or 1
+    if not machine.processingStartedAt then
+        machine.processingStartedAt = now
+        updateProcessingVisual(machine)
+        return
+    end
 
-        if now - inputItem.receivedAt >= processingTime then
-            local outputCellX, outputCellZ = getOutputCell(machine)
-            if outputCellX == nil or outputCellZ == nil then
-                machine.retryAt = now + 0.5
-                return
-            end
+    local processingTime = machineData.processingTime or 1
+    if now - machine.processingStartedAt < processingTime then
+        return
+    end
 
-            local spawned, message = ConveyorSystem.SpawnProductionItem(player, machineData.outputItem, outputCellX, outputCellZ)
-            if spawned then
-                table.remove(machine.inputQueue, index)
-                machine.retryAt = nil
-                updateProcessingVisual(machine)
-            elseif message == "Conveyor cell is full" then
-                machine.retryAt = now + 0.5
-                return
-            else
-                machine.retryAt = now + 0.5
-                return
-            end
+    local outputCellX, outputCellZ = getOutputCell(machine)
+    if outputCellX == nil or outputCellZ == nil then
+        machine.retryAt = now + 0.5
+        return
+    end
+
+    local spawned, message = ConveyorSystem.SpawnProductionItem(player, machineData.outputItem, outputCellX, outputCellZ)
+    if spawned then
+        for _ = 1, getRecipeInputCount(machineData) do
+            table.remove(machine.inputQueue, 1)
         end
+
+        machine.processingStartedAt = hasEnoughInputForRecipe(machine, machineData) and now or nil
+        machine.retryAt = nil
+        updateProcessingVisual(machine)
+    elseif message == "Conveyor cell is full" then
+        machine.retryAt = now + 0.5
+        return
+    else
+        machine.retryAt = now + 0.5
+        return
     end
 end
 
@@ -312,9 +312,7 @@ local function updateMachineProduction(player, machine, now)
         machine.productionProgress = 0
 
         if machine.type == "processor" then
-            for _, inputItem in ipairs(machine.inputQueue) do
-                inputItem.receivedAt = now
-            end
+            machine.processingStartedAt = nil
             updateProcessingVisual(machine)
         elseif machine.type == "producer" then
             updateProducerVisual(machine, machineData)
@@ -374,6 +372,7 @@ function MachineSystem.RegisterMachine(player, cellX, cellZ, machineName, instan
         instance = instance,
         inputQueue = {},
         inputQueueSize = machineData.inputQueueSize or 0,
+        processingStartedAt = nil,
         lastProducedTime = tick(),
         productionProgress = 0,
         isPowered = isInstancePowered(instance, machineData),
@@ -493,6 +492,11 @@ function MachineSystem.FeedMachine(player, machineInstance, itemName, production
         itemName = itemName,
         receivedAt = tick(),
     })
+
+    if not machine.processingStartedAt and hasEnoughInputForRecipe(machine, machineData) then
+        machine.processingStartedAt = tick()
+    end
+
     updateProcessingVisual(machine)
 
     return true

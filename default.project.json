@@ -37,6 +37,7 @@
           "MineEntrance": {"$path": "src/ReplicatedStorage/Shared/ItemTemplates/MineEntrace.rbxm"},
           "Sawmill": {"$path": "src/ReplicatedStorage/Shared/ItemTemplates/Sawmill.rbxmx"},
           "BeamCutter": {"$path": "src/Workspace/Models/BeamCutter.rbxm"},
+          "CrateAssembler": {"$path": "src/Workspace/Models/WoodCrateMachine.rbxm"},
           "StoneMine": {"$path": "src/Workspace/Models/StoneMine.rbxm"},
           "StoneCutter": {"$path": "src/Workspace/Models/StoneCutter.rbxm"},
           "Furnace": {"$path": "src/Workspace/Models/Furnace.rbxm"},
@@ -50,6 +51,7 @@
           "IronOre": {"$path": "src/Workspace/Models/Iron ore.rbxm"},
           "Plank": {"$path": "src/Workspace/Models/Plank.rbxm"},
           "Beam": {"$path": "src/Workspace/Models/WoodBeam.rbxm"},
+          "Crate": {"$path": "src/Workspace/Models/WoodCrate.rbxm"},
           "Stone": {"$path": "src/Workspace/Models/Stone.rbxm"},
           "StoneBlock": {"$path": "src/Workspace/Models/StoneBlock.rbxm"},
           "IronIngot": {"$path": "src/Workspace/Models/IronIngot.rbxm"}

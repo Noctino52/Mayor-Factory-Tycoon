@@ -43,6 +43,14 @@ local ITEMS = {
 		rarity = "common",
 		isProduction = true,
 	},
+	Crate = {
+		name = "Crate",
+		icon = "📦",
+		category = "wood",
+		value = 45,
+		rarity = "common",
+		isProduction = true,
+	},
 	Stone = {
 		name = "Stone",
 		icon = "🪨",
@@ -233,6 +241,15 @@ local ITEMS = {
 		isMachine = true,
 		isProduction = false,
 	},
+	CrateAssembler = {
+		name = "CrateAssembler",
+		icon = "📦",
+		category = "machine",
+		cost = 350,
+		type = "processor",
+		isMachine = true,
+		isProduction = false,
+	},
 	StoneCutter = {
 		name = "StoneCutter",
 		icon = "SC",
@@ -305,6 +322,17 @@ local MACHINES = {
 		inputQueueSize = 2,
 		powerRequired = 12,
 	},
+	CrateAssembler = {
+		name = "CrateAssembler",
+		type = "processor",
+		inputItem = "Beam",
+		inputCount = 2,
+		outputItem = "Crate",
+		processingTime = 6,
+		inputQueueSize = 4,
+		powerRequired = 18,
+		outputRotationOffset = 0,
+	},
 	StoneCutter = {
 		name = "StoneCutter",
 		type = "processor",
@@ -338,6 +366,11 @@ local NPCS = {
 		buysItems = { "Plank", "Beam", "Crate" },
 		baseReputationReward = 5,
 		basePriceMultiplier = 1.0,
+		itemRewards = {
+			Plank = { money = 15, reputation = 5 },
+			Beam = { money = 25, reputation = 8 },
+			Crate = { money = 45, reputation = 12 },
+		},
 		unlocksAt = { reputation = 0 }, -- Unlocked from start
 	},
 	Bront = {
