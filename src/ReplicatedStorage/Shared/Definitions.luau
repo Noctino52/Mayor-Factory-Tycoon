@@ -29,7 +29,7 @@ local ITEMS = {
 	},
 	Plank = {
 		name = "Plank",
-		icon = "🪨",
+		icon = "🟫",
 		category = "wood",
 		value = 15,
 		rarity = "common",
@@ -37,7 +37,7 @@ local ITEMS = {
 	},
 	Beam = {
 		name = "Beam",
-		icon = "B",
+		icon = "📏",
 		category = "wood",
 		value = 25,
 		rarity = "common",
@@ -69,7 +69,7 @@ local ITEMS = {
 	},
 	IronOre = {
 		name = "IronOre",
-		icon = "⚙️",
+		icon = "🪨",
 		category = "iron",
 		value = 20,
 		rarity = "common",

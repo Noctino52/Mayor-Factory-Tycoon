@@ -13,6 +13,7 @@ local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
 local sharedFolder = ReplicatedStorage:WaitForChild("Shared")
 local Definitions = require(sharedFolder:WaitForChild("Definitions"))
+local ProductionItems = require(script.Parent:WaitForChild("ProductionItems"))
 local templatesFolder = sharedFolder:WaitForChild("ItemTemplates")
 local flowPreviewTemplatesFolder = sharedFolder:WaitForChild("FlowPreviewTemplates")
 local arrowForBeltTemplate = flowPreviewTemplatesFolder:WaitForChild("ArrowForBelt")
@@ -30,6 +31,17 @@ local updateFactorySignTextRemote = ReplicatedStorage:WaitForChild("UpdateFactor
 local GHOST_TRANSPARENCY = 0.6
 local GRID_UNIT_SIZE = 8 -- Fixed grid size in studs
 local MAX_FACTORY_SIGN_TEXT_LENGTH = 32
+
+-- Machine info panel recipe row layout (icon -> name -> arrow -> icon -> name)
+local ICON_VIEWPORT_SIZE = 22
+local ICON_ROW_Y = 20
+local RECIPE_NAME_WIDTH = 68
+local RECIPE_ARROW_WIDTH = 16
+local INPUT_NAME_X = ICON_VIEWPORT_SIZE + 4
+local ARROW_X = INPUT_NAME_X + RECIPE_NAME_WIDTH + 4
+local OUTPUT_ICON_WITH_INPUT_X = ARROW_X + RECIPE_ARROW_WIDTH + 4
+local OUTPUT_NAME_WITH_INPUT_X = OUTPUT_ICON_WITH_INPUT_X + ICON_VIEWPORT_SIZE + 4
+local OUTPUT_NAME_NO_INPUT_X = ICON_VIEWPORT_SIZE + 4
 
 -- Item Icons mapping
 local ITEM_ICONS = {
@@ -52,6 +64,54 @@ local function getItemIcon(itemName)
     end
 
     return ITEM_ICONS[itemName] or "?"
+end
+
+-- Build a small live 3D preview of a production item's actual belt model inside a ViewportFrame
+local function updateRecipeIconViewport(viewport, itemName)
+    if not viewport then
+        return
+    end
+
+    itemName = itemName or ""
+    if viewport:GetAttribute("CurrentItem") == itemName then
+        return
+    end
+    viewport:SetAttribute("CurrentItem", itemName)
+
+    local worldModel = viewport:FindFirstChildOfClass("WorldModel")
+    if not worldModel then
+        return
+    end
+
+    worldModel:ClearAllChildren()
+    viewport.Visible = itemName ~= ""
+    if itemName == "" then
+        return
+    end
+
+    local ok, model = pcall(ProductionItems.CreateInstance, itemName)
+    if not ok or not model then
+        return
+    end
+
+    model.Parent = worldModel
+
+    local center, size
+    if model:IsA("BasePart") then
+        center = model.Position
+        size = model.Size
+    else
+        local boundsCFrame, boundsSize = model:GetBoundingBox()
+        center = boundsCFrame.Position
+        size = boundsSize
+    end
+
+    local radius = math.max(size.X, size.Y, size.Z, 0.4)
+    local camera = viewport.CurrentCamera
+    if camera then
+        local eyeOffset = Vector3.new(1, 0.85, 1).Unit * (radius * 2.4)
+        camera.CFrame = CFrame.lookAt(center + eyeOffset, center)
+    end
 end
 
 -- State
@@ -1973,7 +2033,7 @@ local function updateItemContextMenuContents(target)
     local isMachine = isMachineContextTarget(target)
 
     if isMachine then
-        itemContextBillboard.Size = UDim2.new(0, 230, 0, 128)
+        itemContextBillboard.Size = UDim2.new(0, 230, 0, 140)
         if rotateButton then
             rotateButton.Size = UDim2.new(1, -8, 0, 34)
             rotateButton.Position = UDim2.new(0, 4, 1, -38)
@@ -1984,19 +2044,62 @@ local function updateItemContextMenuContents(target)
 
             local itemName = target:GetAttribute("ItemName")
             local machineData = Definitions.GetMachine(itemName)
-            local recipeText = target:GetAttribute("MachineRecipeText")
+            local inputItemName = target:GetAttribute("MachineInputItem")
+            local outputItemName = target:GetAttribute("MachineOutputItem")
             local queueText = target:GetAttribute("MachineQueueText")
             local statusText = target:GetAttribute("MachineStatusText")
             local progress = math.clamp(tonumber(target:GetAttribute("ProcessingProgress")) or 0, 0, 1)
 
-            if not recipeText or recipeText == "" then
-                if machineData and machineData.type == "processor" then
-                    recipeText = tostring(machineData.inputItem or "Input") .. " -> " .. tostring(machineData.outputItem or "Output")
-                elseif machineData and machineData.type == "producer" then
-                    recipeText = "Produces " .. tostring(machineData.outputItem or "Output")
-                else
-                    recipeText = itemName
+            if not inputItemName then
+                inputItemName = machineData and machineData.inputItem or ""
+            end
+
+            if not outputItemName or outputItemName == "" then
+                outputItemName = machineData and machineData.outputItem or ""
+            end
+
+            local hasInput = inputItemName ~= ""
+
+            local inputIconViewport = machinePanel:FindFirstChild("MachineInputIcon")
+            updateRecipeIconViewport(inputIconViewport, inputItemName)
+            if inputIconViewport then
+                inputIconViewport.Visible = hasInput
+            end
+
+            local required = tonumber(target:GetAttribute("MachineRecipeRequired")) or 0
+            local received = tonumber(target:GetAttribute("MachineRecipeReceived")) or 0
+
+            local inputNameLabel = machinePanel:FindFirstChild("MachineInputName")
+            if inputNameLabel and inputNameLabel:IsA("TextLabel") then
+                inputNameLabel.Visible = hasInput
+                if hasInput then
+                    inputNameLabel.Text = required > 1
+                        and (inputItemName .. " " .. tostring(received) .. "/" .. tostring(required))
+                        or inputItemName
                 end
+            end
+
+            local arrowLabel = machinePanel:FindFirstChild("MachineRecipeArrow")
+            if arrowLabel then
+                arrowLabel.Visible = hasInput
+            end
+
+            local outputIconViewport = machinePanel:FindFirstChild("MachineOutputIcon")
+            updateRecipeIconViewport(outputIconViewport, outputItemName)
+
+            local outputNameLabel = machinePanel:FindFirstChild("MachineOutputName")
+
+            local outputIconX = hasInput and OUTPUT_ICON_WITH_INPUT_X or 0
+            local outputNameX = hasInput and OUTPUT_NAME_WITH_INPUT_X or OUTPUT_NAME_NO_INPUT_X
+
+            if outputIconViewport then
+                outputIconViewport.Position = UDim2.fromOffset(outputIconX, ICON_ROW_Y)
+            end
+
+            if outputNameLabel and outputNameLabel:IsA("TextLabel") then
+                outputNameLabel.Position = UDim2.fromOffset(outputNameX, ICON_ROW_Y)
+                outputNameLabel.Size = UDim2.new(1, -outputNameX, 0, ICON_VIEWPORT_SIZE)
+                outputNameLabel.Text = outputItemName
             end
 
             if not queueText or queueText == "" then
@@ -2016,11 +2119,6 @@ local function updateItemContextMenuContents(target)
             local titleLabel = machinePanel:FindFirstChild("MachineTitle")
             if titleLabel and titleLabel:IsA("TextLabel") then
                 titleLabel.Text = itemName
-            end
-
-            local recipeLabel = machinePanel:FindFirstChild("MachineRecipe")
-            if recipeLabel and recipeLabel:IsA("TextLabel") then
-                recipeLabel.Text = recipeText
             end
 
             local queueLabel = machinePanel:FindFirstChild("MachineQueue")
@@ -2086,7 +2184,7 @@ local function createItemContextMenu()
 
     local machinePanel = Instance.new("Frame")
     machinePanel.Name = "MachineInfoPanel"
-    machinePanel.Size = UDim2.new(1, -12, 0, 82)
+    machinePanel.Size = UDim2.new(1, -12, 0, 86)
     machinePanel.Position = UDim2.fromOffset(6, 6)
     machinePanel.BackgroundTransparency = 1
     machinePanel.Visible = false
@@ -2105,23 +2203,82 @@ local function createItemContextMenu()
     machineTitle.ZIndex = 12
     machineTitle.Parent = machinePanel
 
-    local machineRecipe = Instance.new("TextLabel")
-    machineRecipe.Name = "MachineRecipe"
-    machineRecipe.Size = UDim2.new(1, 0, 0, 18)
-    machineRecipe.Position = UDim2.fromOffset(0, 20)
-    machineRecipe.BackgroundTransparency = 1
-    machineRecipe.TextColor3 = Color3.fromRGB(236, 230, 208)
-    machineRecipe.TextSize = 12
-    machineRecipe.Font = Enum.Font.Gotham
-    machineRecipe.TextXAlignment = Enum.TextXAlignment.Left
-    machineRecipe.TextTruncate = Enum.TextTruncate.AtEnd
-    machineRecipe.ZIndex = 12
-    machineRecipe.Parent = machinePanel
+    local function createRecipeIconViewport(iconName, position)
+        local viewport = Instance.new("ViewportFrame")
+        viewport.Name = iconName
+        viewport.Size = UDim2.fromOffset(ICON_VIEWPORT_SIZE, ICON_VIEWPORT_SIZE)
+        viewport.Position = position
+        viewport.BackgroundTransparency = 1
+        viewport.Ambient = Color3.fromRGB(200, 200, 200)
+        viewport.LightColor = Color3.fromRGB(255, 255, 255)
+        viewport.ZIndex = 12
+        viewport.Parent = machinePanel
+
+        local worldModel = Instance.new("WorldModel")
+        worldModel.Name = "IconWorld"
+        worldModel.Parent = viewport
+
+        local camera = Instance.new("Camera")
+        camera.FieldOfView = 30
+        camera.Parent = viewport
+        viewport.CurrentCamera = camera
+
+        return viewport
+    end
+
+    local function createRecipeNameLabel(labelName, position, size, alignment)
+        local label = Instance.new("TextLabel")
+        label.Name = labelName
+        label.Size = size
+        label.Position = position
+        label.BackgroundTransparency = 1
+        label.TextColor3 = Color3.fromRGB(236, 230, 208)
+        label.TextSize = 12
+        label.Font = Enum.Font.Gotham
+        label.TextXAlignment = alignment
+        label.TextYAlignment = Enum.TextYAlignment.Center
+        label.TextTruncate = Enum.TextTruncate.AtEnd
+        label.ZIndex = 12
+        label.Parent = machinePanel
+        return label
+    end
+
+    local machineInputIcon = createRecipeIconViewport("MachineInputIcon", UDim2.fromOffset(0, ICON_ROW_Y))
+
+    local machineInputName = createRecipeNameLabel(
+        "MachineInputName",
+        UDim2.fromOffset(INPUT_NAME_X, ICON_ROW_Y),
+        UDim2.new(0, RECIPE_NAME_WIDTH, 0, ICON_VIEWPORT_SIZE),
+        Enum.TextXAlignment.Left
+    )
+
+    local machineRecipeArrow = Instance.new("TextLabel")
+    machineRecipeArrow.Name = "MachineRecipeArrow"
+    machineRecipeArrow.Size = UDim2.new(0, RECIPE_ARROW_WIDTH, 0, ICON_VIEWPORT_SIZE)
+    machineRecipeArrow.Position = UDim2.fromOffset(ARROW_X, ICON_ROW_Y)
+    machineRecipeArrow.BackgroundTransparency = 1
+    machineRecipeArrow.TextColor3 = Color3.fromRGB(200, 210, 216)
+    machineRecipeArrow.TextSize = 16
+    machineRecipeArrow.Font = Enum.Font.GothamBold
+    machineRecipeArrow.Text = "\u{2192}"
+    machineRecipeArrow.TextXAlignment = Enum.TextXAlignment.Center
+    machineRecipeArrow.TextYAlignment = Enum.TextYAlignment.Center
+    machineRecipeArrow.ZIndex = 12
+    machineRecipeArrow.Parent = machinePanel
+
+    local machineOutputIcon = createRecipeIconViewport("MachineOutputIcon", UDim2.fromOffset(OUTPUT_ICON_WITH_INPUT_X, ICON_ROW_Y))
+
+    local machineOutputName = createRecipeNameLabel(
+        "MachineOutputName",
+        UDim2.fromOffset(OUTPUT_NAME_WITH_INPUT_X, ICON_ROW_Y),
+        UDim2.new(1, -OUTPUT_NAME_WITH_INPUT_X, 0, ICON_VIEWPORT_SIZE),
+        Enum.TextXAlignment.Left
+    )
 
     local machineQueue = Instance.new("TextLabel")
     machineQueue.Name = "MachineQueue"
     machineQueue.Size = UDim2.new(0.55, -4, 0, 18)
-    machineQueue.Position = UDim2.fromOffset(0, 40)
+    machineQueue.Position = UDim2.fromOffset(0, 48)
     machineQueue.BackgroundTransparency = 1
     machineQueue.TextColor3 = Color3.fromRGB(210, 218, 225)
     machineQueue.TextSize = 12
@@ -2134,7 +2291,7 @@ local function createItemContextMenu()
     local machineStatus = Instance.new("TextLabel")
     machineStatus.Name = "MachineStatus"
     machineStatus.Size = UDim2.new(0.45, -4, 0, 18)
-    machineStatus.Position = UDim2.new(0.55, 4, 0, 40)
+    machineStatus.Position = UDim2.new(0.55, 4, 0, 48)
     machineStatus.BackgroundTransparency = 1
     machineStatus.TextColor3 = Color3.fromRGB(170, 220, 255)
     machineStatus.TextSize = 12
@@ -2147,7 +2304,7 @@ local function createItemContextMenu()
     local progressBack = Instance.new("Frame")
     progressBack.Name = "ProgressBack"
     progressBack.Size = UDim2.new(1, 0, 0, 8)
-    progressBack.Position = UDim2.fromOffset(0, 64)
+    progressBack.Position = UDim2.fromOffset(0, 70)
     progressBack.BackgroundColor3 = Color3.fromRGB(18, 35, 42)
     progressBack.BackgroundTransparency = 0.32
     progressBack.BorderSizePixel = 0
