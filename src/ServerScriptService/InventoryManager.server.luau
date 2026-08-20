@@ -100,13 +100,20 @@ local ITEM_VISUAL_ADJUSTMENTS = {
         maxScale = 3,
     },
     Furnace = {
+        alignToFootprint = true,
         maxScale = 2.5,
     },
-    StoneMine = {
+    Quarry = {
         alignToFootprint = true,
         maxScale = 2,
         revealTransparentParts = true,
         visualRotationOffset = 1,
+    },
+    BrickKiln = {
+        alignToFootprint = true,
+    },
+    CrateAssembler = {
+        alignToFootprint = true,
     },
     DecorTree = {
         footprintPadding = 2,
@@ -527,6 +534,58 @@ local function getTemplateAlias(itemName)
     return nil
 end
 
+-- ============================================================================
+-- Procedural machine model helpers
+--
+-- Every generated machine sits on the same 7.4x0.45x7.4 base (fits inside a
+-- single 8-stud grid cell with margin) and reads its input/output item sizes
+-- straight from Definitions, so the mouth/slot that accepts or ejects an item
+-- is always shaped to match that item instead of an arbitrary guess.
+-- ============================================================================
+
+local MACHINE_FOOTPRINT = Vector3.new(7.4, 0.45, 7.4)
+
+local function createMachineBase(model, material, color)
+    local base = Instance.new("Part")
+    base.Name = "Base"
+    base.Size = MACHINE_FOOTPRINT
+    base.CFrame = CFrame.new(0, MACHINE_FOOTPRINT.Y / 2, 0)
+    base.Anchored = true
+    base.CanCollide = true
+    base.Material = material or Enum.Material.Concrete
+    base.Color = color or Color3.fromRGB(82, 86, 88)
+    base.Parent = model
+    model.PrimaryPart = base
+    return base
+end
+
+-- Vector3 size of a production item as it visually appears on a belt, used to
+-- shape machine mouths/slots so they match the item passing through them.
+local function getItemVisualSize(itemName)
+    local itemData = itemName and Definitions.GetItem(itemName)
+    return (itemData and itemData.size) or Vector3.new(1, 1, 1)
+end
+
+-- Builds a flush, item-shaped opening on the -X (input) or +X (output) face
+-- of a machine body. `faceX` is the local X position of that face; the slot
+-- is sized from the item's Y/Z cross-section (the face you see as it arrives
+-- or leaves along the belt) plus a small clearance margin.
+local function createFlowSlot(model, name, itemName, faceX, centerY, color, glow)
+    local itemSize = getItemVisualSize(itemName)
+    local slot = Instance.new("Part")
+    slot.Name = name
+    slot.Size = Vector3.new(0.15, itemSize.Y + 0.14, itemSize.Z + 0.14)
+    slot.CFrame = CFrame.new(faceX, centerY, 0)
+    slot.Anchored = true
+    slot.CanCollide = false
+    slot.CanQuery = false
+    slot.CanTouch = false
+    slot.Material = glow and Enum.Material.Neon or Enum.Material.SmoothPlastic
+    slot.Color = color
+    slot.Parent = model
+    return slot
+end
+
 local function createConveyorTemplate()
     local existing = templatesFolder:FindFirstChild("Conveyor")
     if existing then
@@ -735,127 +794,204 @@ local function createSawmillTemplate()
         return existing
     end
 
+    local machineData = Definitions.GetMachine("Sawmill")
     local sawmill = Instance.new("Model")
     sawmill.Name = "Sawmill"
 
-    local base = Instance.new("Part")
-    base.Name = "Base"
-    base.Size = Vector3.new(7.4, 0.45, 7.4)
-    base.CFrame = CFrame.new(0, 0.225, 0)
-    base.Anchored = true
-    base.CanCollide = true
-    base.Material = Enum.Material.WoodPlanks
-    base.Color = Color3.fromRGB(118, 82, 48)
-    base.Parent = sawmill
+    createMachineBase(sawmill, Enum.Material.WoodPlanks, Color3.fromRGB(118, 82, 48))
 
     local body = Instance.new("Part")
     body.Name = "Body"
-    body.Size = Vector3.new(5.8, 1.5, 3.4)
-    body.CFrame = CFrame.new(0, 1.2, 0)
+    body.Size = Vector3.new(4.0, 1.8, 3.0)
+    body.CFrame = CFrame.new(0, 1.35, 0)
     body.Anchored = true
     body.CanCollide = true
-    body.Material = Enum.Material.Metal
-    body.Color = Color3.fromRGB(92, 96, 96)
+    body.Material = Enum.Material.WoodPlanks
+    body.Color = Color3.fromRGB(140, 100, 58)
     body.Parent = sawmill
+
+    -- Dark backing panel so the saw blade reads clearly against the wood body
+    local bladeBacking = Instance.new("Part")
+    bladeBacking.Name = "BladeBacking"
+    bladeBacking.Size = Vector3.new(1.7, 1.7, 0.1)
+    bladeBacking.CFrame = CFrame.new(0, 1.55, 1.45)
+    bladeBacking.Anchored = true
+    bladeBacking.CanCollide = false
+    bladeBacking.CanQuery = false
+    bladeBacking.CanTouch = false
+    bladeBacking.Material = Enum.Material.SmoothPlastic
+    bladeBacking.Color = Color3.fromRGB(28, 26, 24)
+    bladeBacking.Parent = sawmill
 
     local blade = Instance.new("Part")
     blade.Name = "Blade"
     blade.Shape = Enum.PartType.Cylinder
-    blade.Size = Vector3.new(0.25, 2.5, 2.5)
-    blade.CFrame = CFrame.new(0.4, 2.05, 0) * CFrame.Angles(0, 0, math.rad(90))
+    blade.Size = Vector3.new(0.15, 1.5, 1.5)
+    blade.CFrame = CFrame.new(0, 1.55, 1.51) * CFrame.Angles(0, math.rad(90), 0)
     blade.Anchored = true
     blade.CanCollide = false
+    blade.CanQuery = false
+    blade.CanTouch = false
     blade.Material = Enum.Material.Metal
     blade.Color = Color3.fromRGB(205, 210, 212)
     blade.Parent = sawmill
 
-    sawmill.PrimaryPart = base
+    local bladeHub = Instance.new("Part")
+    bladeHub.Name = "BladeHub"
+    bladeHub.Shape = Enum.PartType.Cylinder
+    bladeHub.Size = Vector3.new(0.18, 0.32, 0.32)
+    bladeHub.CFrame = CFrame.new(0, 1.55, 1.53) * CFrame.Angles(0, math.rad(90), 0)
+    bladeHub.Anchored = true
+    bladeHub.CanCollide = false
+    bladeHub.CanQuery = false
+    bladeHub.CanTouch = false
+    bladeHub.Material = Enum.Material.Metal
+    bladeHub.Color = Color3.fromRGB(70, 74, 78)
+    bladeHub.Parent = sawmill
+
+    -- Input mouth shaped to fit the Log, output slot shaped to fit the Plank
+    local inputItem = machineData and machineData.inputItem or "Log"
+    local outputItem = machineData and machineData.outputItem or "Plank"
+    local inputSize = getItemVisualSize(inputItem)
+    local outputSize = getItemVisualSize(outputItem)
+
+    createFlowSlot(sawmill, "InputSlot", inputItem, -2.05, 1.05, Color3.fromRGB(22, 20, 18), false)
+    createFlowSlot(sawmill, "OutputSlot", outputItem, 2.05, 1.05, Color3.fromRGB(235, 190, 110), true)
+
+    local inputLedge = Instance.new("Part")
+    inputLedge.Name = "InputLedge"
+    inputLedge.Size = Vector3.new(0.7, 0.3, inputSize.Z + 0.3)
+    inputLedge.CFrame = CFrame.new(-2.6, 1.05, 0)
+    inputLedge.Anchored = true
+    inputLedge.CanCollide = false
+    inputLedge.CanQuery = false
+    inputLedge.CanTouch = false
+    inputLedge.Material = Enum.Material.Metal
+    inputLedge.Color = Color3.fromRGB(56, 58, 62)
+    inputLedge.Parent = sawmill
+
+    local outputLedge = Instance.new("Part")
+    outputLedge.Name = "OutputLedge"
+    outputLedge.Size = Vector3.new(0.7, 0.3, outputSize.Z + 0.3)
+    outputLedge.CFrame = CFrame.new(2.6, 1.05, 0)
+    outputLedge.Anchored = true
+    outputLedge.CanCollide = false
+    outputLedge.CanQuery = false
+    outputLedge.CanTouch = false
+    outputLedge.Material = Enum.Material.Metal
+    outputLedge.Color = Color3.fromRGB(180, 140, 76)
+    outputLedge.Parent = sawmill
+
     sawmill.Parent = templatesFolder
 
     return sawmill
 end
 
-local function createStoneMineTemplate()
-    local existing = templatesFolder:FindFirstChild("StoneMine")
+local function createQuarryTemplate()
+    local existing = templatesFolder:FindFirstChild("Quarry")
     if existing then
         return existing
     end
 
-    local mine = Instance.new("Model")
-    mine.Name = "StoneMine"
-    mine:SetAttribute("GeneratedFallbackTemplate", true)
+    local quarry = Instance.new("Model")
+    quarry.Name = "Quarry"
+    quarry:SetAttribute("GeneratedFallbackTemplate", true)
 
-    local base = Instance.new("Part")
-    base.Name = "Base"
-    base.Size = Vector3.new(7.4, 0.45, 7.4)
-    base.CFrame = CFrame.new(0, 0.225, 0)
-    base.Anchored = true
-    base.CanCollide = true
-    base.Material = Enum.Material.Concrete
-    base.Color = Color3.fromRGB(82, 86, 88)
-    base.Parent = mine
+    createMachineBase(quarry, Enum.Material.Concrete, Color3.fromRGB(82, 86, 88))
 
-    local mound = Instance.new("Part")
-    mound.Name = "RockMound"
-    mound.Size = Vector3.new(5.8, 2.4, 4.6)
-    mound.CFrame = CFrame.new(0, 1.65, 0.35)
-    mound.Anchored = true
-    mound.CanCollide = true
-    mound.Material = Enum.Material.Slate
-    mound.Color = Color3.fromRGB(95, 100, 102)
-    mound.Parent = mine
+    -- Stepped open-pit terraces (each ring smaller and lower than the last)
+    local terraceSteps = {
+        { size = Vector3.new(6.4, 0.5, 6.0), y = 0.7, color = Color3.fromRGB(120, 112, 96) },
+        { size = Vector3.new(4.8, 0.5, 4.4), y = 0.35, color = Color3.fromRGB(104, 98, 84) },
+        { size = Vector3.new(3.2, 0.5, 2.8), y = 0.05, color = Color3.fromRGB(90, 86, 74) },
+    }
+    for index, step in ipairs(terraceSteps) do
+        local terrace = Instance.new("Part")
+        terrace.Name = "Terrace" .. index
+        terrace.Size = step.size
+        terrace.CFrame = CFrame.new(0, step.y, 0.3)
+        terrace.Anchored = true
+        terrace.CanCollide = true
+        terrace.Material = Enum.Material.Rock
+        terrace.Color = step.color
+        terrace.Parent = quarry
+    end
 
-    local cap = Instance.new("WedgePart")
-    cap.Name = "UnevenTop"
-    cap.Size = Vector3.new(5.8, 1.6, 4.6)
-    cap.CFrame = CFrame.new(0, 3.25, 0.35) * CFrame.Angles(0, math.rad(90), 0)
-    cap.Anchored = true
-    cap.CanCollide = true
-    cap.Material = Enum.Material.Rock
-    cap.Color = Color3.fromRGB(112, 116, 116)
-    cap.Parent = mine
+    -- Excavation derrick: a small crane arm leaning over the pit
+    local mast = Instance.new("Part")
+    mast.Name = "DerrickMast"
+    mast.Size = Vector3.new(0.5, 4.2, 0.5)
+    mast.CFrame = CFrame.new(-2.6, 2.35, -2.2)
+    mast.Anchored = true
+    mast.CanCollide = true
+    mast.Material = Enum.Material.Metal
+    mast.Color = Color3.fromRGB(140, 92, 40)
+    mast.Parent = quarry
 
-    local entrance = Instance.new("Part")
-    entrance.Name = "MineOpening"
-    entrance.Size = Vector3.new(2.5, 1.7, 0.18)
-    entrance.CFrame = CFrame.new(0, 1.3, -2.02)
-    entrance.Anchored = true
-    entrance.CanCollide = false
-    entrance.CanQuery = false
-    entrance.CanTouch = false
-    entrance.Material = Enum.Material.SmoothPlastic
-    entrance.Color = Color3.fromRGB(18, 18, 18)
-    entrance.Parent = mine
+    local arm = Instance.new("Part")
+    arm.Name = "DerrickArm"
+    arm.Size = Vector3.new(0.35, 0.35, 5.2)
+    arm.CFrame = CFrame.new(-1.1, 4.1, -0.1) * CFrame.Angles(math.rad(-8), 0, 0)
+    arm.Anchored = true
+    arm.CanCollide = false
+    arm.CanQuery = false
+    arm.CanTouch = false
+    arm.Material = Enum.Material.Metal
+    arm.Color = Color3.fromRGB(160, 108, 48)
+    arm.Parent = quarry
+
+    local cable = Instance.new("Part")
+    cable.Name = "DerrickCable"
+    cable.Size = Vector3.new(0.08, 2.0, 0.08)
+    cable.CFrame = CFrame.new(0.35, 3.0, 0.35)
+    cable.Anchored = true
+    cable.CanCollide = false
+    cable.CanQuery = false
+    cable.CanTouch = false
+    cable.Material = Enum.Material.Metal
+    cable.Color = Color3.fromRGB(30, 30, 30)
+    cable.Parent = quarry
+
+    local bucket = Instance.new("WedgePart")
+    bucket.Name = "DerrickBucket"
+    bucket.Size = Vector3.new(0.9, 0.7, 1.1)
+    bucket.CFrame = CFrame.new(0.35, 1.9, 0.35) * CFrame.Angles(0, 0, math.rad(180))
+    bucket.Anchored = true
+    bucket.CanCollide = false
+    bucket.CanQuery = false
+    bucket.CanTouch = false
+    bucket.Material = Enum.Material.Metal
+    bucket.Color = Color3.fromRGB(120, 124, 128)
+    bucket.Parent = quarry
 
     local output = Instance.new("Part")
     output.Name = "StoneOutputChute"
     output.Size = Vector3.new(1.4, 0.35, 2.2)
-    output.CFrame = CFrame.new(0, 0.85, -3.2)
+    output.CFrame = CFrame.new(0, 0.85, -2.9)
     output.Anchored = true
     output.CanCollide = false
     output.CanQuery = false
     output.CanTouch = false
     output.Material = Enum.Material.Metal
     output.Color = Color3.fromRGB(136, 144, 148)
-    output.Parent = mine
+    output.Parent = quarry
 
     local marker = Instance.new("Part")
     marker.Name = "OutputMarker"
     marker.Size = Vector3.new(0.85, 0.08, 1.35)
-    marker.CFrame = CFrame.new(0, 1.08, -3.45)
+    marker.CFrame = CFrame.new(0, 1.08, -3.15)
     marker.Anchored = true
     marker.CanCollide = false
     marker.CanQuery = false
     marker.CanTouch = false
     marker.Material = Enum.Material.Neon
     marker.Color = Color3.fromRGB(116, 205, 255)
-    marker.Parent = mine
+    marker.Parent = quarry
 
     for index, position in ipairs({
         Vector3.new(-2.55, 0.8, 2.25),
         Vector3.new(2.45, 0.75, 2.1),
-        Vector3.new(-2.25, 0.72, -1.9),
-        Vector3.new(2.35, 0.7, -1.7),
+        Vector3.new(2.35, 0.55, -1.7),
     }) do
         local rock = Instance.new("Part")
         rock.Name = "LooseRock" .. index
@@ -865,13 +1001,288 @@ local function createStoneMineTemplate()
         rock.CanCollide = true
         rock.Material = Enum.Material.Rock
         rock.Color = Color3.fromRGB(105, 110, 112)
-        rock.Parent = mine
+        rock.Parent = quarry
     end
 
-    mine.PrimaryPart = base
-    mine.Parent = templatesFolder
+    quarry.Parent = templatesFolder
 
-    return mine
+    return quarry
+end
+
+local function createBrickKilnTemplate()
+    local existing = templatesFolder:FindFirstChild("BrickKiln")
+    if existing then
+        return existing
+    end
+
+    local kiln = Instance.new("Model")
+    kiln.Name = "BrickKiln"
+
+    createMachineBase(kiln, Enum.Material.Concrete, Color3.fromRGB(82, 86, 88))
+
+    -- Straight brick walls topped by a rounded barrel-vault roof
+    local walls = Instance.new("Part")
+    walls.Name = "KilnWalls"
+    walls.Size = Vector3.new(4.6, 1.6, 3.2)
+    walls.CFrame = CFrame.new(0, 1.25, 0)
+    walls.Anchored = true
+    walls.CanCollide = true
+    walls.Material = Enum.Material.Brick
+    walls.Color = Color3.fromRGB(108, 52, 40)
+    walls.Parent = kiln
+
+    local vault = Instance.new("Part")
+    vault.Name = "KilnVault"
+    vault.Shape = Enum.PartType.Cylinder
+    vault.Size = Vector3.new(4.6, 3.2, 3.2)
+    vault.CFrame = CFrame.new(0, 2.05, 0)
+    vault.Anchored = true
+    vault.CanCollide = true
+    vault.Material = Enum.Material.Brick
+    vault.Color = Color3.fromRGB(130, 64, 48)
+    vault.Parent = kiln
+
+    local chimney = Instance.new("Part")
+    chimney.Name = "Chimney"
+    chimney.Size = Vector3.new(0.9, 2.4, 0.9)
+    chimney.CFrame = CFrame.new(1.3, 4.85, -0.9)
+    chimney.Anchored = true
+    chimney.CanCollide = false
+    chimney.CanQuery = false
+    chimney.CanTouch = false
+    chimney.Material = Enum.Material.Brick
+    chimney.Color = Color3.fromRGB(90, 46, 36)
+    chimney.Parent = kiln
+
+    local chimneyCap = Instance.new("Part")
+    chimneyCap.Name = "ChimneyCap"
+    chimneyCap.Size = Vector3.new(1.1, 0.2, 1.1)
+    chimneyCap.CFrame = CFrame.new(1.3, 6.15, -0.9)
+    chimneyCap.Anchored = true
+    chimneyCap.CanCollide = false
+    chimneyCap.CanQuery = false
+    chimneyCap.CanTouch = false
+    chimneyCap.Material = Enum.Material.Slate
+    chimneyCap.Color = Color3.fromRGB(52, 48, 44)
+    chimneyCap.Parent = kiln
+
+    -- Input end (-X): dark maw where StoneBlock enters
+    local inputMouth = Instance.new("Part")
+    inputMouth.Name = "InputHopper"
+    inputMouth.Size = Vector3.new(0.25, 1.1, 1.7)
+    inputMouth.CFrame = CFrame.new(-2.3, 1.0, 0)
+    inputMouth.Anchored = true
+    inputMouth.CanCollide = false
+    inputMouth.CanQuery = false
+    inputMouth.CanTouch = false
+    inputMouth.Material = Enum.Material.SmoothPlastic
+    inputMouth.Color = Color3.fromRGB(18, 16, 14)
+    inputMouth.Parent = kiln
+
+    local inputLedge = Instance.new("Part")
+    inputLedge.Name = "InputLedge"
+    inputLedge.Size = Vector3.new(1.0, 0.35, 2.2)
+    inputLedge.CFrame = CFrame.new(-3.1, 1.05, 0)
+    inputLedge.Anchored = true
+    inputLedge.CanCollide = false
+    inputLedge.CanQuery = false
+    inputLedge.CanTouch = false
+    inputLedge.Material = Enum.Material.Metal
+    inputLedge.Color = Color3.fromRGB(60, 60, 64)
+    inputLedge.Parent = kiln
+
+    -- Output end (+X): glowing mouth where the fired Brick comes out
+    local outputMouth = Instance.new("Part")
+    outputMouth.Name = "OutputChute"
+    outputMouth.Size = Vector3.new(0.25, 1.0, 1.5)
+    outputMouth.CFrame = CFrame.new(2.3, 0.95, 0)
+    outputMouth.Anchored = true
+    outputMouth.CanCollide = false
+    outputMouth.CanQuery = false
+    outputMouth.CanTouch = false
+    outputMouth.Material = Enum.Material.Neon
+    outputMouth.Color = Color3.fromRGB(255, 150, 60)
+    outputMouth.Parent = kiln
+
+    local outputLedge = Instance.new("Part")
+    outputLedge.Name = "OutputLedge"
+    outputLedge.Size = Vector3.new(1.0, 0.35, 2.2)
+    outputLedge.CFrame = CFrame.new(3.1, 1.05, 0)
+    outputLedge.Anchored = true
+    outputLedge.CanCollide = false
+    outputLedge.CanQuery = false
+    outputLedge.CanTouch = false
+    outputLedge.Material = Enum.Material.Metal
+    outputLedge.Color = Color3.fromRGB(180, 120, 60)
+    outputLedge.Parent = kiln
+
+    kiln.Parent = templatesFolder
+
+    return kiln
+end
+
+local function createCrateAssemblerTemplate()
+    local existing = templatesFolder:FindFirstChild("CrateAssembler")
+    if existing then
+        return existing
+    end
+
+    local assembler = Instance.new("Model")
+    assembler.Name = "CrateAssembler"
+
+    createMachineBase(assembler, Enum.Material.Concrete, Color3.fromRGB(70, 74, 76))
+
+    -- Press table where the Beams are clamped into a Crate
+    local table_ = Instance.new("Part")
+    table_.Name = "PressTable"
+    table_.Size = Vector3.new(4.6, 0.3, 3.0)
+    table_.CFrame = CFrame.new(0, 0.9, 0)
+    table_.Anchored = true
+    table_.CanCollide = true
+    table_.Material = Enum.Material.Metal
+    table_.Color = Color3.fromRGB(36, 84, 58)
+    table_.Parent = assembler
+
+    for index, offset in ipairs({
+        Vector3.new(-2.0, -1.35),
+        Vector3.new(2.0, -1.35),
+        Vector3.new(-2.0, 1.35),
+        Vector3.new(2.0, 1.35),
+    }) do
+        local leg = Instance.new("Part")
+        leg.Name = "TableLeg" .. index
+        leg.Size = Vector3.new(0.22, 0.6, 0.22)
+        leg.CFrame = CFrame.new(offset.X, 0.75, offset.Y)
+        leg.Anchored = true
+        leg.CanCollide = false
+        leg.CanQuery = false
+        leg.CanTouch = false
+        leg.Material = Enum.Material.Metal
+        leg.Color = Color3.fromRGB(30, 66, 46)
+        leg.Parent = assembler
+    end
+
+    -- Vertical press cabinet standing behind the table, kept inside the base footprint
+    local tower = Instance.new("Part")
+    tower.Name = "PressTower"
+    tower.Size = Vector3.new(3.0, 2.6, 1.1)
+    tower.CFrame = CFrame.new(0, 1.75, -2.0)
+    tower.Anchored = true
+    tower.CanCollide = true
+    tower.Material = Enum.Material.Metal
+    tower.Color = Color3.fromRGB(56, 88, 108)
+    tower.Parent = assembler
+
+    local towerButtonA = Instance.new("Part")
+    towerButtonA.Name = "TowerButtonRed"
+    towerButtonA.Shape = Enum.PartType.Cylinder
+    towerButtonA.Size = Vector3.new(0.1, 0.24, 0.24)
+    towerButtonA.CFrame = CFrame.new(-0.35, 2.55, -1.44) * CFrame.Angles(0, math.rad(90), 0)
+    towerButtonA.Anchored = true
+    towerButtonA.CanCollide = false
+    towerButtonA.CanQuery = false
+    towerButtonA.CanTouch = false
+    towerButtonA.Material = Enum.Material.Neon
+    towerButtonA.Color = Color3.fromRGB(220, 50, 40)
+    towerButtonA.Parent = assembler
+
+    local towerButtonB = Instance.new("Part")
+    towerButtonB.Name = "TowerButtonGreen"
+    towerButtonB.Shape = Enum.PartType.Cylinder
+    towerButtonB.Size = Vector3.new(0.1, 0.24, 0.24)
+    towerButtonB.CFrame = CFrame.new(0.05, 2.55, -1.44) * CFrame.Angles(0, math.rad(90), 0)
+    towerButtonB.Anchored = true
+    towerButtonB.CanCollide = false
+    towerButtonB.CanQuery = false
+    towerButtonB.CanTouch = false
+    towerButtonB.Material = Enum.Material.Neon
+    towerButtonB.Color = Color3.fromRGB(70, 200, 90)
+    towerButtonB.Parent = assembler
+
+    -- Press head bar carrying the clamp rams over the table
+    local pressHead = Instance.new("Part")
+    pressHead.Name = "PressHeadBar"
+    pressHead.Size = Vector3.new(2.6, 0.25, 0.35)
+    pressHead.CFrame = CFrame.new(0, 1.83, -0.9)
+    pressHead.Anchored = true
+    pressHead.CanCollide = false
+    pressHead.CanQuery = false
+    pressHead.CanTouch = false
+    pressHead.Material = Enum.Material.Metal
+    pressHead.Color = Color3.fromRGB(32, 34, 38)
+    pressHead.Parent = assembler
+
+    for index, offsetX in ipairs({ -0.9, -0.3, 0.3, 0.9 }) do
+        local ramShaft = Instance.new("Part")
+        ramShaft.Name = "RamShaft" .. index
+        ramShaft.Size = Vector3.new(0.14, 0.5, 0.14)
+        ramShaft.CFrame = CFrame.new(offsetX, 1.46, -0.9)
+        ramShaft.Anchored = true
+        ramShaft.CanCollide = false
+        ramShaft.CanQuery = false
+        ramShaft.CanTouch = false
+        ramShaft.Material = Enum.Material.Metal
+        ramShaft.Color = Color3.fromRGB(46, 48, 52)
+        ramShaft.Parent = assembler
+
+        local ramTip = Instance.new("Part")
+        ramTip.Name = "RamTip" .. index
+        ramTip.Size = Vector3.new(0.2, 0.14, 0.2)
+        ramTip.CFrame = CFrame.new(offsetX, 1.14, -0.9)
+        ramTip.Anchored = true
+        ramTip.CanCollide = false
+        ramTip.CanQuery = false
+        ramTip.CanTouch = false
+        ramTip.Material = Enum.Material.Neon
+        ramTip.Color = Color3.fromRGB(235, 90, 40)
+        ramTip.Parent = assembler
+    end
+
+    -- Mesh safety guards flanking the table
+    for index, offsetZ in ipairs({ -1.5, 1.5 }) do
+        local guard = Instance.new("Part")
+        guard.Name = "SafetyGuard" .. index
+        guard.Size = Vector3.new(4.6, 1.0, 0.1)
+        guard.CFrame = CFrame.new(0, 1.55, offsetZ)
+        guard.Anchored = true
+        guard.CanCollide = false
+        guard.CanQuery = false
+        guard.CanTouch = false
+        guard.Transparency = 0.35
+        guard.Material = Enum.Material.DiamondPlate
+        guard.Color = Color3.fromRGB(96, 108, 118)
+        guard.Parent = assembler
+    end
+
+    -- Input end (-X): plain dark feed where Beams arrive
+    local inputMouth = Instance.new("Part")
+    inputMouth.Name = "InputHopper"
+    inputMouth.Size = Vector3.new(0.18, 0.35, 2.2)
+    inputMouth.CFrame = CFrame.new(-2.5, 1.05, 0)
+    inputMouth.Anchored = true
+    inputMouth.CanCollide = false
+    inputMouth.CanQuery = false
+    inputMouth.CanTouch = false
+    inputMouth.Material = Enum.Material.SmoothPlastic
+    inputMouth.Color = Color3.fromRGB(30, 32, 36)
+    inputMouth.Parent = assembler
+
+    -- Output end (+X): bright chute where the assembled Crate exits
+    local outputChute = Instance.new("Part")
+    outputChute.Name = "OutputChute"
+    outputChute.Size = Vector3.new(0.8, 0.35, 2.2)
+    outputChute.CFrame = CFrame.new(2.5, 1.05, 0)
+    outputChute.Anchored = true
+    outputChute.CanCollide = false
+    outputChute.CanQuery = false
+    outputChute.CanTouch = false
+    outputChute.Material = Enum.Material.Neon
+    outputChute.Color = Color3.fromRGB(235, 90, 40)
+    outputChute.Parent = assembler
+
+    assembler.Parent = templatesFolder
+
+    return assembler
 end
 
 local PROCESSOR_TEMPLATE_STYLES = {
@@ -879,12 +1290,6 @@ local PROCESSOR_TEMPLATE_STYLES = {
         baseColor = Color3.fromRGB(116, 78, 42),
         bodyColor = Color3.fromRGB(92, 72, 56),
         accentColor = Color3.fromRGB(235, 185, 92),
-        material = Enum.Material.WoodPlanks,
-    },
-    CrateAssembler = {
-        baseColor = Color3.fromRGB(108, 72, 38),
-        bodyColor = Color3.fromRGB(74, 82, 78),
-        accentColor = Color3.fromRGB(210, 154, 82),
         material = Enum.Material.WoodPlanks,
     },
     StoneCutter = {
@@ -973,11 +1378,6 @@ local function createProcessorTemplate(itemName)
         tool.Name = "Firebox"
         tool.Size = Vector3.new(2.5, 1.0, 2.0)
         tool.CFrame = CFrame.new(0, 2.25, 0)
-    elseif itemName == "CrateAssembler" then
-        tool = Instance.new("Part")
-        tool.Name = "CratePress"
-        tool.Size = Vector3.new(2.35, 1.35, 2.35)
-        tool.CFrame = CFrame.new(0.35, 2.15, 0)
     else
         tool = Instance.new("WedgePart")
         tool.Name = "CutterHead"
@@ -991,22 +1391,6 @@ local function createProcessorTemplate(itemName)
     tool.Material = itemName == "Furnace" and Enum.Material.Neon or Enum.Material.Metal
     tool.Color = style.accentColor
     tool.Parent = processor
-
-    if itemName == "CrateAssembler" then
-        for index, offset in ipairs({ -0.65, 0.65 }) do
-            local band = Instance.new("Part")
-            band.Name = "CrateBand" .. tostring(index)
-            band.Size = Vector3.new(2.5, 0.18, 0.18)
-            band.CFrame = CFrame.new(0.35, 2.15, offset)
-            band.Anchored = true
-            band.CanCollide = false
-            band.CanQuery = false
-            band.CanTouch = false
-            band.Material = Enum.Material.Metal
-            band.Color = Color3.fromRGB(74, 50, 30)
-            band.Parent = processor
-        end
-    end
 
     processor.PrimaryPart = base
     processor.Parent = templatesFolder
@@ -1341,8 +1725,20 @@ local function createSellZoneTemplate(itemName)
 end
 
 local function ensureItemTemplate(itemName)
-    if itemName == "StoneMine" then
-        return createStoneMineTemplate()
+    if itemName == "Sawmill" then
+        return createSawmillTemplate()
+    end
+
+    if itemName == "Quarry" then
+        return createQuarryTemplate()
+    end
+
+    if itemName == "BrickKiln" then
+        return createBrickKilnTemplate()
+    end
+
+    if itemName == "CrateAssembler" then
+        return createCrateAssemblerTemplate()
     end
 
     local template = templatesFolder:FindFirstChild(itemName)
@@ -1366,10 +1762,6 @@ local function ensureItemTemplate(itemName)
 
     if itemName == "Splitter" or itemName == "Merger" then
         return createTransportJunctionTemplate(itemName)
-    end
-
-    if itemName == "Sawmill" then
-        return createSawmillTemplate()
     end
 
     local machineData = Definitions.GetMachine(itemName)

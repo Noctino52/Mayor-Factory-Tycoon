@@ -267,14 +267,21 @@ local ITEM_VISUAL_ADJUSTMENTS = {
         maxScale = 3,
     },
     Furnace = {
+        alignToFootprint = true,
         footprintPadding = 1.25,
         maxScale = 2.5,
     },
-    StoneMine = {
+    Quarry = {
         alignToFootprint = true,
         maxScale = 2,
         revealTransparentParts = true,
         visualRotationOffset = 1,
+    },
+    BrickKiln = {
+        alignToFootprint = true,
+    },
+    CrateAssembler = {
+        alignToFootprint = true,
     },
     DecorTree = {
         footprintPadding = 2,

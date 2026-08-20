@@ -26,6 +26,7 @@ local ITEMS = {
 		value = 10,
 		rarity = "common",
 		isProduction = true,
+		size = Vector3.new(2.2, 0.9, 0.9),
 	},
 	Plank = {
 		name = "Plank",
@@ -34,6 +35,7 @@ local ITEMS = {
 		value = 15,
 		rarity = "common",
 		isProduction = true,
+		size = Vector3.new(1.35, 0.45, 1.35),
 	},
 	Beam = {
 		name = "Beam",
@@ -42,14 +44,16 @@ local ITEMS = {
 		value = 25,
 		rarity = "common",
 		isProduction = true,
+		size = Vector3.new(4.5, 1.35, 1.95),
 	},
 	Crate = {
 		name = "Crate",
-		icon = "📦",
+		icon = "CR",
 		category = "wood",
 		value = 45,
 		rarity = "common",
 		isProduction = true,
+		size = Vector3.new(1.15, 1.0, 1.15),
 	},
 	Stone = {
 		name = "Stone",
@@ -58,6 +62,7 @@ local ITEMS = {
 		value = 12,
 		rarity = "common",
 		isProduction = true,
+		size = Vector3.new(0.85, 0.65, 0.85),
 	},
 	StoneBlock = {
 		name = "StoneBlock",
@@ -66,6 +71,16 @@ local ITEMS = {
 		value = 18,
 		rarity = "common",
 		isProduction = true,
+		size = Vector3.new(0.9, 0.75, 0.9),
+	},
+	Brick = {
+		name = "Brick",
+		icon = "BR",
+		category = "stone",
+		value = 42,
+		rarity = "common",
+		isProduction = true,
+		size = Vector3.new(1.15, 0.55, 0.6),
 	},
 	IronOre = {
 		name = "IronOre",
@@ -74,6 +89,7 @@ local ITEMS = {
 		value = 20,
 		rarity = "common",
 		isProduction = true,
+		size = Vector3.new(1.05, 0.75, 1.05),
 	},
 	IronIngot = {
 		name = "IronIngot",
@@ -82,6 +98,7 @@ local ITEMS = {
 		value = 30,
 		rarity = "common",
 		isProduction = true,
+		size = Vector3.new(1.1, 0.45, 0.55),
 	},
 
 	-- Placeable Items (machines, transportation, and decorations)
@@ -214,9 +231,9 @@ local ITEMS = {
 		isMachine = true,
 		isProduction = false,
 	},
-	StoneMine = {
-		name = "StoneMine",
-		icon = "SM",
+	Quarry = {
+		name = "Quarry",
+		icon = "QR",
 		category = "machine",
 		cost = 100,
 		type = "producer",
@@ -243,7 +260,7 @@ local ITEMS = {
 	},
 	CrateAssembler = {
 		name = "CrateAssembler",
-		icon = "📦",
+		icon = "CA",
 		category = "machine",
 		cost = 350,
 		type = "processor",
@@ -264,6 +281,15 @@ local ITEMS = {
 		icon = "F",
 		category = "machine",
 		cost = 175,
+		type = "processor",
+		isMachine = true,
+		isProduction = false,
+	},
+	BrickKiln = {
+		name = "BrickKiln",
+		icon = "BK",
+		category = "machine",
+		cost = 420,
 		type = "processor",
 		isMachine = true,
 		isProduction = false,
@@ -292,8 +318,8 @@ local MACHINES = {
 		outputRotationOffset = 3,
 		powerRequired = 15,
 	},
-	StoneMine = {
-		name = "StoneMine",
+	Quarry = {
+		name = "Quarry",
 		type = "producer",
 		outputItem = "Stone",
 		outputRate = 1,
@@ -351,6 +377,17 @@ local MACHINES = {
 		processingTime = 5,
 		inputQueueSize = 2,
 		powerRequired = 15,
+	},
+	BrickKiln = {
+		name = "BrickKiln",
+		type = "processor",
+		inputItem = "StoneBlock",
+		inputCount = 2,
+		outputItem = "Brick",
+		processingTime = 7,
+		inputQueueSize = 4,
+		powerRequired = 20,
+		outputRotationOffset = 0,
 	},
 }
 

@@ -11,6 +11,7 @@ local ITEM_COLORS = {
     Crate = Color3.fromRGB(174, 116, 58),
     Stone = Color3.fromRGB(122, 128, 132),
     StoneBlock = Color3.fromRGB(150, 154, 158),
+    Brick = Color3.fromRGB(178, 90, 62),
     IronOre = Color3.fromRGB(82, 86, 92),
     IronIngot = Color3.fromRGB(170, 175, 182),
 }
@@ -22,6 +23,7 @@ local ITEM_MAX_BOUNDS = {
     Crate = Vector3.new(1.15, 1.0, 1.15),
     Stone = Vector3.new(0.85, 0.65, 0.85),
     StoneBlock = Vector3.new(0.9, 0.75, 0.9),
+    Brick = Vector3.new(1.15, 0.55, 0.6),
     IronIngot = Vector3.new(1.1, 0.45, 0.55),
 }
 
@@ -32,6 +34,7 @@ local ITEM_VISUAL_SCALE = {
 local ITEM_FALLBACK_SIZES = {
     Beam = Vector3.new(4.5, 1.35, 1.95),
     Crate = Vector3.new(1.0, 0.9, 1.0),
+    Brick = Vector3.new(1.1, 0.5, 0.55),
 }
 
 function ProductionItems.GetColor(itemName)
@@ -177,6 +180,39 @@ local function createCrateInstance()
     return crate
 end
 
+local function createBrickInstance()
+    local brick = Instance.new("Model")
+
+    local body = Instance.new("Part")
+    body.Name = "BrickBody"
+    body.Size = Vector3.new(1.1, 0.5, 0.55)
+    body.CFrame = CFrame.new(0, 0, 0)
+    body.Material = Enum.Material.Brick
+    body.Color = ProductionItems.GetColor("Brick")
+    body.Parent = brick
+
+    local grooveColor = Color3.fromRGB(120, 60, 40)
+    local grooveSpecs = {
+        { name = "GrooveTop", size = Vector3.new(1.12, 0.05, 0.08), cframe = CFrame.new(0, 0.23, 0) },
+        { name = "GrooveSideA", size = Vector3.new(0.08, 0.52, 0.57), cframe = CFrame.new(-0.28, 0, 0) },
+        { name = "GrooveSideB", size = Vector3.new(0.08, 0.52, 0.57), cframe = CFrame.new(0.28, 0, 0) },
+    }
+
+    for _, spec in ipairs(grooveSpecs) do
+        local groove = Instance.new("Part")
+        groove.Name = spec.name
+        groove.Size = spec.size
+        groove.CFrame = spec.cframe
+        groove.Material = Enum.Material.Brick
+        groove.Color = grooveColor
+        groove.Parent = brick
+    end
+
+    brick.PrimaryPart = body
+    configureInstance(brick, "Brick")
+    return brick
+end
+
 function ProductionItems.CreateInstance(itemName)
     local template = findTemplate(itemName)
     if template then
@@ -195,6 +231,8 @@ function ProductionItems.CreateInstance(itemName)
 
     if itemName == "Crate" then
         return createCrateInstance()
+    elseif itemName == "Brick" then
+        return createBrickInstance()
     end
 
     return ProductionItems.CreatePart(itemName)
