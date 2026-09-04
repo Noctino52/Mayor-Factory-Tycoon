@@ -3,7 +3,21 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 
 local ConveyorSystem = require(game.ServerScriptService.ConveyorSystem)
+local PlotWorkers = require(game.ServerScriptService.PlotWorkers)
 local Definitions = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Definitions"))
+
+-- Same item models the conveyors use, so the piece a machine is working on
+-- looks exactly like the item that went in and the one that comes out.
+local productionItemModule = nil
+do
+    local starterScripts = game:GetService("StarterPlayer"):FindFirstChild("StarterPlayerScripts")
+    local moduleScript = starterScripts and starterScripts:FindFirstChild("ProductionItems")
+    if moduleScript and moduleScript:IsA("ModuleScript") then
+        pcall(function()
+            productionItemModule = require(moduleScript)
+        end)
+    end
+end
 
 local MachineSystem = {}
 
@@ -226,6 +240,7 @@ local function updateProducer(player, machine, machineData, now)
     local outputFrequency = machineData.outputFrequency or 5
     machine.productionProgress = math.clamp((now - machine.lastProducedTime) / outputFrequency, 0, 1)
     updateProducerVisual(machine, machineData)
+    PlotWorkers.Update(machine, machineData, machine.productionProgress)
 
     if now - machine.lastProducedTime < outputFrequency then
         return
@@ -254,19 +269,204 @@ local function updateProducer(player, machine, machineData, now)
     end
 end
 
+-- ---------------------------------------------------------------------------
+-- Workpiece animation
+--
+-- While a processor is working it shows the piece sitting on the machine: the
+-- input item rests in place, the saw head (any part named *Head_*, which is
+-- how the Blender models are exported) sweeps across it, and partway through
+-- the cut the piece becomes the finished item. Purely cosmetic - the real
+-- item is still spawned onto the conveyor by updateProcessor.
+-- ---------------------------------------------------------------------------
+
+local WORKPIECE_NAME = "Workpiece"
+
+local function restoreHeadParts(machine)
+    if not machine.headOrigins then
+        return
+    end
+
+    for part, cframe in pairs(machine.headOrigins) do
+        if part.Parent then
+            part.CFrame = cframe
+        end
+    end
+
+    machine.headOrigins = nil
+end
+
+local function clearWorkpiece(machine)
+    if machine.workpiece then
+        machine.workpiece:Destroy()
+        machine.workpiece = nil
+    end
+
+    machine.workpieceItem = nil
+    machine.workpieceCFrame = nil
+    machine.workpiecePivot = nil
+    restoreHeadParts(machine)
+end
+
+local function captureWorkpieceAnchor(machine, config)
+    local instance = machine.instance
+    if not instance or not instance.Parent then
+        return false
+    end
+
+    -- Measured before the workpiece is parented in, so it cannot drag the
+    -- bounding box of the machine around with it.
+    local boundsCFrame, boundsSize = instance:GetBoundingBox()
+    local restY = boundsCFrame.Position.Y - boundsSize.Y / 2 + (config.height or 1)
+    local pivot = instance:GetPivot()
+
+    machine.workpieceCFrame = CFrame.new(boundsCFrame.Position.X, restY, boundsCFrame.Position.Z)
+        * (pivot - pivot.Position)
+    machine.workpiecePivot = pivot
+
+    local origins = {}
+    for _, descendant in ipairs(instance:GetDescendants()) do
+        if descendant:IsA("BasePart") and string.find(descendant.Name, "Head_", 1, true) then
+            origins[descendant] = descendant.CFrame
+        end
+    end
+    machine.headOrigins = next(origins) and origins or nil
+
+    return true
+end
+
+local function setWorkpieceItem(machine, itemName)
+    if machine.workpieceItem == itemName then
+        return
+    end
+
+    if machine.workpiece then
+        machine.workpiece:Destroy()
+        machine.workpiece = nil
+    end
+
+    machine.workpieceItem = itemName
+
+    if not productionItemModule or not itemName then
+        return
+    end
+
+    local created, model = pcall(productionItemModule.CreateInstance, itemName)
+    if not created or not model then
+        return
+    end
+
+    model.Name = WORKPIECE_NAME
+    if model:IsA("BasePart") then
+        model.Anchored = true
+        model.CanCollide = false
+        model.CanQuery = false
+        model.CanTouch = false
+    end
+    for _, descendant in ipairs(model:GetDescendants()) do
+        if descendant:IsA("BasePart") then
+            descendant.Anchored = true
+            descendant.CanCollide = false
+            descendant.CanQuery = false
+            descendant.CanTouch = false
+        end
+    end
+
+    model.Parent = machine.instance
+    machine.workpiece = model
+end
+
+local function placeWorkpiece(machine)
+    local model = machine.workpiece
+    local target = machine.workpieceCFrame
+    if not model or not model.Parent or not target then
+        return
+    end
+
+    if model:IsA("BasePart") then
+        model.CFrame = target
+    else
+        model:PivotTo(target)
+    end
+end
+
+local function sweepHead(machine, config, progress)
+    if not machine.headOrigins then
+        return
+    end
+
+    local travel = config.headTravel or 0
+    if travel <= 0 then
+        return
+    end
+
+    local instance = machine.instance
+    if not instance or not instance.Parent then
+        return
+    end
+
+    -- Travels the length of the piece across the cut, centred on the machine
+    local offset = instance:GetPivot().RightVector * (travel * (progress - 0.5))
+    for part, origin in pairs(machine.headOrigins) do
+        if part.Parent then
+            part.CFrame = origin + offset
+        end
+    end
+end
+
+local function updateWorkpiece(machine, machineData, now)
+    local config = machineData and machineData.workpiece
+    if not config then
+        return
+    end
+
+    if not machine.processingStartedAt then
+        clearWorkpiece(machine)
+        return
+    end
+
+    local instance = machine.instance
+    if machine.workpiecePivot and instance and instance.Parent then
+        local pivot = instance:GetPivot()
+        local moved = (pivot.Position - machine.workpiecePivot.Position).Magnitude > 0.05
+        local turned = pivot.LookVector:Dot(machine.workpiecePivot.LookVector) < 0.999
+        if moved or turned then
+            -- Origins were captured against the old placement: drop them
+            -- before they get restored to the wrong spot.
+            machine.headOrigins = nil
+            clearWorkpiece(machine)
+        end
+    end
+
+    if not machine.workpieceCFrame and not captureWorkpieceAnchor(machine, config) then
+        return
+    end
+
+    local processingTime = machineData.processingTime or 1
+    local progress = math.clamp((now - machine.processingStartedAt) / processingTime, 0, 1)
+    local swapAt = config.swapAt or 0.65
+
+    setWorkpieceItem(machine, progress < swapAt and machineData.inputItem or machineData.outputItem)
+    placeWorkpiece(machine)
+    sweepHead(machine, config, progress)
+end
+
 local function updateProcessor(player, machine, machineData, now)
     updateProcessingVisual(machine)
 
     if not hasEnoughInputForRecipe(machine, machineData) then
         machine.processingStartedAt = nil
+        clearWorkpiece(machine)
         return
     end
 
     if not machine.processingStartedAt then
         machine.processingStartedAt = now
         updateProcessingVisual(machine)
+        updateWorkpiece(machine, machineData, now)
         return
     end
+
+    updateWorkpiece(machine, machineData, now)
 
     local processingTime = machineData.processingTime or 1
     if now - machine.processingStartedAt < processingTime then
@@ -287,6 +487,7 @@ local function updateProcessor(player, machine, machineData, now)
 
         machine.processingStartedAt = hasEnoughInputForRecipe(machine, machineData) and now or nil
         machine.retryAt = nil
+        clearWorkpiece(machine)
         updateProcessingVisual(machine)
     elseif message == "Conveyor cell is full" then
         machine.retryAt = now + 0.5
@@ -315,9 +516,11 @@ local function updateMachineProduction(player, machine, now)
 
         if machine.type == "processor" then
             machine.processingStartedAt = nil
+            clearWorkpiece(machine)
             updateProcessingVisual(machine)
         elseif machine.type == "producer" then
             updateProducerVisual(machine, machineData)
+            PlotWorkers.Clear(machine)
         end
 
         if machine.instance and machine.instance.Parent then
@@ -404,6 +607,11 @@ function MachineSystem.UnregisterMachine(player, cellX, cellZ)
     end
 
     local machine = machines[machineKey(cellX, cellZ)]
+    if machine then
+        clearWorkpiece(machine)
+        PlotWorkers.Clear(machine)
+    end
+
     if machine and machine.instance and machine.instance.Parent then
         local adornee = getFirstBasePart(machine.instance)
         local billboard = adornee and adornee:FindFirstChild("ProcessingStatus")

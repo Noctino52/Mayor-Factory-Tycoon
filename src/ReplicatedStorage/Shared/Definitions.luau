@@ -308,6 +308,19 @@ local MACHINES = {
 		outputRate = 1,
 		outputFrequency = 5, -- seconds between outputs
 		powerRequired = 10,
+		-- Drives the lumberjack animation. Tree positions are read from the
+		-- placed model at runtime; only the count is declared here.
+		worker = {
+			scale = 0.5,
+			groundY = 0.30,
+			standInset = 0.55, -- how far off the bed he stands, toward the road
+			dropAt = Vector3.new(2.40, 0, 0),
+			regrowCycles = 2,
+			treeCount = 6,
+			walkOut = 0.22,
+			chopUntil = 0.55,
+			carryUntil = 0.85,
+		},
 	},
 	MineEntrance = {
 		name = "MineEntrance",
@@ -338,6 +351,10 @@ local MACHINES = {
 		processingTime = 3,
 		inputQueueSize = 2,
 		powerRequired = 8,
+		-- Drives the on-machine cutting animation: where the piece rests
+		-- (studs above the machine's base), how far the saw head sweeps,
+		-- and how far through the cut the log becomes a plank.
+		workpiece = { height = 1.25, headTravel = 2.2, swapAt = 0.62 },
 	},
 	BeamCutter = {
 		name = "BeamCutter",

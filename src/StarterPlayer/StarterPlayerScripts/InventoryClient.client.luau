@@ -286,6 +286,9 @@ local ITEM_VISUAL_ADJUSTMENTS = {
     Sawmill = {
         alignToFootprint = true,
     },
+    BeamCutter = {
+        alignToFootprint = true,
+    },
     DecorTree = {
         footprintPadding = 2,
         maxScale = 2,

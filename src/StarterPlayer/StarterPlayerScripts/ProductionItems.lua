@@ -180,6 +180,48 @@ local function createCrateInstance()
     return crate
 end
 
+local function createLogInstance()
+    local size = Vector3.new(2.2, 0.9, 0.9)
+    local log = Instance.new("Model")
+
+    local body = Instance.new("Part")
+    body.Name = "LogBody"
+    body.Shape = Enum.PartType.Cylinder
+    body.Size = size
+    body.CFrame = CFrame.new(0, 0, 0)
+    body.Material = Enum.Material.Wood
+    body.Color = ProductionItems.GetColor("Log")
+    body.Parent = log
+
+    -- Pale sawn faces at both ends, so it reads as cut timber
+    for index, offsetX in ipairs({ -size.X / 2 + 0.03, size.X / 2 - 0.03 }) do
+        local face = Instance.new("Part")
+        face.Name = "LogFace" .. index
+        face.Shape = Enum.PartType.Cylinder
+        face.Size = Vector3.new(0.06, size.Y * 0.94, size.Z * 0.94)
+        face.CFrame = CFrame.new(offsetX, 0, 0)
+        face.Material = Enum.Material.Wood
+        face.Color = Color3.fromRGB(197, 156, 106)
+        face.Parent = log
+    end
+
+    -- A couple of darker bark bands to break up the barrel
+    for index, offsetX in ipairs({ -0.45, 0.45 }) do
+        local band = Instance.new("Part")
+        band.Name = "LogBand" .. index
+        band.Shape = Enum.PartType.Cylinder
+        band.Size = Vector3.new(0.16, size.Y * 1.02, size.Z * 1.02)
+        band.CFrame = CFrame.new(offsetX, 0, 0)
+        band.Material = Enum.Material.Wood
+        band.Color = Color3.fromRGB(92, 58, 32)
+        band.Parent = log
+    end
+
+    log.PrimaryPart = body
+    configureInstance(log, "Log")
+    return log
+end
+
 local function createBrickInstance()
     local brick = Instance.new("Model")
 
@@ -233,6 +275,8 @@ function ProductionItems.CreateInstance(itemName)
         return createCrateInstance()
     elseif itemName == "Brick" then
         return createBrickInstance()
+    elseif itemName == "Log" then
+        return createLogInstance()
     end
 
     return ProductionItems.CreatePart(itemName)
