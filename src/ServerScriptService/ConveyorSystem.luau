@@ -621,6 +621,20 @@ local function setItemCFrame(item, cframe)
     end
 end
 
+-- Every item is modelled lengthwise along its own X, so pointing that axis
+-- down the belt makes a log or a plank ride like timber on a truck instead of
+-- lying across the belt, and it comes off a machine still pointing the way it
+-- was being worked.
+local function itemCFrame(position, direction)
+    local flat = Vector3.new(direction.X, 0, direction.Z)
+    if flat.Magnitude < 0.001 then
+        return CFrame.new(position)
+    end
+
+    flat = flat.Unit
+    return CFrame.lookAt(position, position + flat) * CFrame.Angles(0, math.rad(90), 0)
+end
+
 local function createProductionItemInstance(itemName, cellX, cellZ, player, plotId, itemId, spawnedAt)
     local item
     if productionItemModule and productionItemModule.CreateInstance then
@@ -645,7 +659,9 @@ local function createProductionItemInstance(itemName, cellX, cellZ, player, plot
         return nil
     end
 
-    setItemCFrame(item, CFrame.new(worldPosition))
+    local spawnCell = getCellInfo(player, cellX, cellZ)
+    local dx, dz = getRoutingDirection(spawnCell, nil)
+    setItemCFrame(item, itemCFrame(worldPosition, Vector3.new(dx, 0, dz)))
     item:SetAttribute("Owner", player.UserId)
     item:SetAttribute("PlotId", plotId)
     item:SetAttribute("ItemName", itemName)
@@ -877,9 +893,8 @@ local function machineIntakePosition(activeItem, startPosition, targetPosition)
         end
     end
 
-    -- How far the item reaches ahead of its own centre along the approach
-    local reach = math.abs(size.X * direction.X) / 2 + math.abs(size.Z * direction.Z) / 2
-    local stopShort = GRID_UNIT_SIZE / 2 + reach
+    -- Items point their own X down the belt, so that is what reaches ahead
+    local stopShort = GRID_UNIT_SIZE / 2 + size.X / 2
 
     if approach.Magnitude <= stopShort then
         return startPosition
@@ -1078,8 +1093,11 @@ local function tryStartNextSegment(activeItem)
         mergerToAdvance:SetAttribute("MergerNextInputLane", mergerInputLane == 1 and 2 or 1)
     end
 
-    activeItem.startCFrame = CFrame.new(startPosition)
-    activeItem.targetCFrame = CFrame.new(targetPosition)
+    -- Keeps the rotation it has now and turns into the new heading over the
+    -- segment, so a corner reads as the item swinging round rather than
+    -- snapping to the next direction the moment it enters the cell.
+    activeItem.startCFrame = CFrame.new(startPosition) * getItemCFrame(activeItem.model).Rotation
+    activeItem.targetCFrame = itemCFrame(targetPosition, targetPosition - startPosition)
     activeItem.targetCellX = nextCellX
     activeItem.targetCellZ = nextCellZ
     activeItem.segmentProgress = 0

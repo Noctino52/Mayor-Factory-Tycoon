@@ -18,8 +18,6 @@ local ITEM_COLORS = {
 
 local ITEM_MAX_BOUNDS = {
     IronOre = Vector3.new(1.05, 0.75, 1.05),
-    Plank = Vector3.new(2.0, 0.3, 0.75),
-    Beam = Vector3.new(1.5, 0.45, 0.65),
     Crate = Vector3.new(1.15, 1.0, 1.15),
     Stone = Vector3.new(0.85, 0.65, 0.85),
     StoneBlock = Vector3.new(0.9, 0.75, 0.9),
@@ -27,13 +25,7 @@ local ITEM_MAX_BOUNDS = {
     IronIngot = Vector3.new(1.1, 0.45, 0.55),
 }
 
-local ITEM_VISUAL_SCALE = {
-    Beam = 3,
-}
-
 local ITEM_FALLBACK_SIZES = {
-    Beam = Vector3.new(4.5, 1.35, 1.95),
-    Plank = Vector3.new(2.0, 0.26, 0.7),
     Crate = Vector3.new(1.0, 0.9, 1.0),
     Brick = Vector3.new(1.1, 0.5, 0.55),
 }
@@ -130,23 +122,6 @@ local function fitInstanceToMaxBounds(instance, itemName)
     end
 end
 
-local function applyVisualScale(instance, itemName)
-    local scale = ITEM_VISUAL_SCALE[itemName]
-    if not scale or scale == 1 then
-        return
-    end
-
-    if instance:IsA("BasePart") then
-        local cframe = instance.CFrame
-        instance.Size *= scale
-        instance.CFrame = cframe
-    else
-        local pivot = instance:GetPivot()
-        instance:ScaleTo(instance:GetScale() * scale)
-        instance:PivotTo(pivot)
-    end
-end
-
 local function createCrateInstance()
     local crate = Instance.new("Model")
 
@@ -182,7 +157,7 @@ local function createCrateInstance()
 end
 
 local function createLogInstance()
-    local size = Vector3.new(2.2, 0.9, 0.9)
+    local size = Vector3.new(1.6, 0.66, 0.66)
     local log = Instance.new("Model")
 
     local body = Instance.new("Part")
@@ -195,11 +170,11 @@ local function createLogInstance()
     body.Parent = log
 
     -- Pale sawn faces at both ends, so it reads as cut timber
-    for index, offsetX in ipairs({ -size.X / 2 + 0.03, size.X / 2 - 0.03 }) do
+    for index, offsetX in ipairs({ -size.X / 2 + 0.025, size.X / 2 - 0.025 }) do
         local face = Instance.new("Part")
         face.Name = "LogFace" .. index
         face.Shape = Enum.PartType.Cylinder
-        face.Size = Vector3.new(0.06, size.Y * 0.94, size.Z * 0.94)
+        face.Size = Vector3.new(0.05, size.Y * 0.94, size.Z * 0.94)
         face.CFrame = CFrame.new(offsetX, 0, 0)
         face.Material = Enum.Material.Wood
         face.Color = Color3.fromRGB(197, 156, 106)
@@ -207,11 +182,11 @@ local function createLogInstance()
     end
 
     -- A couple of darker bark bands to break up the barrel
-    for index, offsetX in ipairs({ -0.45, 0.45 }) do
+    for index, offsetX in ipairs({ -0.33, 0.33 }) do
         local band = Instance.new("Part")
         band.Name = "LogBand" .. index
         band.Shape = Enum.PartType.Cylinder
-        band.Size = Vector3.new(0.16, size.Y * 1.02, size.Z * 1.02)
+        band.Size = Vector3.new(0.12, size.Y * 1.02, size.Z * 1.02)
         band.CFrame = CFrame.new(offsetX, 0, 0)
         band.Material = Enum.Material.Wood
         band.Color = Color3.fromRGB(92, 58, 32)
@@ -224,7 +199,7 @@ local function createLogInstance()
 end
 
 local function createPlankInstance()
-    local size = Vector3.new(2.0, 0.26, 0.7)
+    local size = Vector3.new(1.45, 0.2, 0.52)
     local plank = Instance.new("Model")
 
     local body = Instance.new("Part")
@@ -247,10 +222,10 @@ local function createPlankInstance()
     end
 
     -- Two grain lines down the face, so it reads as a board and not a slab
-    for index, offsetZ in ipairs({ -0.18, 0.16 }) do
+    for index, offsetZ in ipairs({ -0.13, 0.12 }) do
         local grain = Instance.new("Part")
         grain.Name = "PlankGrain" .. index
-        grain.Size = Vector3.new(size.X * 0.9, 0.02, 0.06)
+        grain.Size = Vector3.new(size.X * 0.9, 0.02, 0.05)
         grain.CFrame = CFrame.new(0, size.Y / 2 - 0.005, offsetZ)
         grain.Material = Enum.Material.Wood
         grain.Color = Color3.fromRGB(163, 118, 68)
@@ -262,12 +237,57 @@ local function createPlankInstance()
     return plank
 end
 
+local function createBeamInstance()
+    local size = Vector3.new(1.3, 0.32, 0.32)
+    local beam = Instance.new("Model")
+
+    local body = Instance.new("Part")
+    body.Name = "BeamBody"
+    body.Size = size
+    body.CFrame = CFrame.new(0, 0, 0)
+    body.Material = Enum.Material.Wood
+    body.Color = ProductionItems.GetColor("Beam")
+    body.Parent = beam
+
+    -- Planed corners: the chamfer is what tells a squared beam from a stick
+    for index, offset in ipairs({
+        Vector3.new(0, size.Y / 2, size.Z / 2),
+        Vector3.new(0, size.Y / 2, -size.Z / 2),
+        Vector3.new(0, -size.Y / 2, size.Z / 2),
+        Vector3.new(0, -size.Y / 2, -size.Z / 2),
+    }) do
+        local chamfer = Instance.new("Part")
+        chamfer.Name = "BeamEdge" .. index
+        chamfer.Size = Vector3.new(size.X * 1.002, 0.07, 0.07)
+        chamfer.CFrame = CFrame.new(offset) * CFrame.Angles(math.rad(45), 0, 0)
+        chamfer.Material = Enum.Material.Wood
+        chamfer.Color = Color3.fromRGB(172, 122, 66)
+        chamfer.Parent = beam
+    end
+
+    -- Sawn ends, same treatment as the Log and the Plank
+    for index, offsetX in ipairs({ -size.X / 2 + 0.02, size.X / 2 - 0.02 }) do
+        local endGrain = Instance.new("Part")
+        endGrain.Name = "BeamEnd" .. index
+        endGrain.Size = Vector3.new(0.04, size.Y * 1.02, size.Z * 1.02)
+        endGrain.CFrame = CFrame.new(offsetX, 0, 0)
+        endGrain.Material = Enum.Material.Wood
+        endGrain.Color = Color3.fromRGB(132, 90, 48)
+        endGrain.Parent = beam
+    end
+
+    beam.PrimaryPart = body
+    configureInstance(beam, "Beam")
+    return beam
+end
+
 -- Items whose look lives here in code rather than in an imported model.
 -- Checked before the template folder: a template left behind in the place
 -- file would otherwise quietly shadow the code and nothing would change.
 local PROCEDURAL_ITEMS = {
     Log = createLogInstance,
     Plank = createPlankInstance,
+    Beam = createBeamInstance,
 }
 
 local function createBrickInstance()
@@ -316,7 +336,6 @@ function ProductionItems.CreateInstance(itemName)
 
         if hasVisiblePart(instance) then
             fitInstanceToMaxBounds(instance, itemName)
-            applyVisualScale(instance, itemName)
             return instance
         end
 

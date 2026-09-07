@@ -26,7 +26,7 @@ local ITEMS = {
 		value = 10,
 		rarity = "common",
 		isProduction = true,
-		size = Vector3.new(2.2, 0.9, 0.9),
+		size = Vector3.new(1.6, 0.66, 0.66),
 	},
 	Plank = {
 		name = "Plank",
@@ -35,8 +35,8 @@ local ITEMS = {
 		value = 15,
 		rarity = "common",
 		isProduction = true,
-		-- A board sawn out of a Log: same length, a fraction of its section
-		size = Vector3.new(2.0, 0.26, 0.7),
+		-- A board sawn out of a Log: a little shorter, a slice of its section
+		size = Vector3.new(1.45, 0.2, 0.52),
 	},
 	Beam = {
 		name = "Beam",
@@ -45,7 +45,8 @@ local ITEMS = {
 		value = 25,
 		rarity = "common",
 		isProduction = true,
-		size = Vector3.new(4.5, 1.35, 1.95),
+		-- A Plank planed down to a squared post
+		size = Vector3.new(1.3, 0.32, 0.32),
 	},
 	Crate = {
 		name = "Crate",
@@ -360,9 +361,10 @@ local MACHINES = {
 		-- Drives the on-machine cutting animation. bedHeight is the surface
 		-- the piece sits on, in studs above the machine's base; whatever is
 		-- being worked rests on top of it, so a log and a plank both sit
-		-- right on the bunks. headTravel is the sweep of the saw head, and
+		-- right on the bunks. travel is how far up the bed the piece is fed
+		-- in and pushed out again, headTravel the sweep of the saw head, and
 		-- swapAt how far through the cut the log becomes a plank.
-		workpiece = { bedHeight = 0.93, headTravel = 2.2, swapAt = 0.62 },
+		workpiece = { bedHeight = 0.93, travel = 2.6, headTravel = 2.2, swapAt = 0.62 },
 	},
 	BeamCutter = {
 		name = "BeamCutter",

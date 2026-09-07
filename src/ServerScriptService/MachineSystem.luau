@@ -281,6 +281,28 @@ end
 
 local WORKPIECE_NAME = "Workpiece"
 
+-- The piece is fed in over the first slice of the cycle and pushed out over
+-- the last, leaving the middle for the cut itself.
+local WORKPIECE_ENTER_UNTIL = 0.2
+local WORKPIECE_LEAVE_FROM = 0.8
+
+-- How far along the bed the piece is at this point in the cycle: at the
+-- intake before the cut, on the cutting line during it, at the outfeed after.
+local function workpieceTravel(config, progress)
+    local travel = config.travel or 0
+    if travel <= 0 then
+        return 0
+    end
+
+    if progress <= WORKPIECE_ENTER_UNTIL then
+        return -travel * (1 - progress / WORKPIECE_ENTER_UNTIL)
+    elseif progress >= WORKPIECE_LEAVE_FROM then
+        return travel * ((progress - WORKPIECE_LEAVE_FROM) / (1 - WORKPIECE_LEAVE_FROM))
+    end
+
+    return 0
+end
+
 local function restoreHeadParts(machine)
     if not machine.headOrigins then
         return
@@ -305,6 +327,7 @@ local function clearWorkpiece(machine)
     machine.workpieceCFrame = nil
     machine.workpiecePivot = nil
     machine.workpieceScale = nil
+    machine.workpieceExit = nil
     restoreHeadParts(machine)
 end
 
@@ -328,6 +351,23 @@ local function captureWorkpieceAnchor(machine, config)
         * (pivot - pivot.Position)
     machine.workpiecePivot = pivot
     machine.workpieceScale = scale
+
+    -- Which way along the bed the finished piece leaves. Taken from the cell
+    -- the machine actually outputs to rather than from a convention about
+    -- model orientation, so it follows whatever the machine is set up to do.
+    machine.workpieceExit = 0
+    local outputCellX, outputCellZ = getOutputCell(machine)
+    local cellX = instance:GetAttribute("CellX") or machine.cellX
+    local cellZ = instance:GetAttribute("CellZ") or machine.cellZ
+    if outputCellX and outputCellZ and cellX and cellZ then
+        local worldExit = Vector3.new(
+            math.sign(outputCellX - cellX),
+            0,
+            math.sign(outputCellZ - cellZ)
+        )
+        local alongBed = pivot:VectorToObjectSpace(worldExit).X
+        machine.workpieceExit = math.abs(alongBed) > 0.5 and math.sign(alongBed) or 0
+    end
 
     local origins = {}
     for _, descendant in ipairs(instance:GetDescendants()) do
@@ -381,12 +421,16 @@ local function setWorkpieceItem(machine, itemName)
     machine.workpiece = model
 end
 
-local function placeWorkpiece(machine)
+local function placeWorkpiece(machine, alongBed)
     local model = machine.workpiece
     local bed = machine.workpieceCFrame
     if not model or not model.Parent or not bed then
         return
     end
+
+    -- The bed axis is the machine's own X: every machine in the game is built
+    -- with the flow running along it, in at one end and out at the other.
+    bed = bed * CFrame.new((alongBed or 0) * (machine.workpieceExit or 0), 0, 0)
 
     local function setPivot(cframe)
         if model:IsA("BasePart") then
@@ -426,9 +470,17 @@ local function sweepHead(machine, config, progress)
         return
     end
 
-    -- Travels the length of the piece across the cut, centred on the machine
+    -- Travels the length of the piece across the cut, centred on the machine.
+    -- Only while the piece is actually there: it waits at one end of its
+    -- stroke while the piece is still coming in, and stays at the other while
+    -- it leaves.
+    local cut = math.clamp(
+        (progress - WORKPIECE_ENTER_UNTIL) / (WORKPIECE_LEAVE_FROM - WORKPIECE_ENTER_UNTIL),
+        0,
+        1
+    )
     local scale = machine.workpieceScale or 1
-    local offset = instance:GetPivot().RightVector * (travel * scale * (progress - 0.5))
+    local offset = instance:GetPivot().RightVector * (travel * scale * (cut - 0.5))
     for part, origin in pairs(machine.headOrigins) do
         if part.Parent then
             part.CFrame = origin + offset
@@ -469,7 +521,7 @@ local function updateWorkpiece(machine, machineData, now)
     local swapAt = config.swapAt or 0.65
 
     setWorkpieceItem(machine, progress < swapAt and machineData.inputItem or machineData.outputItem)
-    placeWorkpiece(machine)
+    placeWorkpiece(machine, workpieceTravel(config, progress) * (machine.workpieceScale or 1))
     sweepHead(machine, config, progress)
 end
 
