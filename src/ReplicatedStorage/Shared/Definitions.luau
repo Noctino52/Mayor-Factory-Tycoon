@@ -388,7 +388,10 @@ local MACHINES = {
 		inputQueueSize = 4,
 		powerRequired = 18,
 		outputRotationOffset = 0,
-	},
+		-- The press nails rather than cuts, so its head strokes down instead
+		-- of across: headLift is how far it drops onto the work. The crate
+		-- appears late, once the platen is back up clear of it.
+		workpiece = { bedHeight = 1.00, travel = 2.5, headLift = 1.0, swapAt = 0.77 },
 	StoneCutter = {
 		name = "StoneCutter",
 		type = "processor",
