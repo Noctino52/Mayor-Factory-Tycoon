@@ -72,21 +72,35 @@ local function buildRig(scale)
 	headMesh.Scale = Vector3.new(1.25, 1.25, 1.25)
 	headMesh.Parent = headPart
 
-	-- The chopping arm and its axe are posed together, so they live in their
-	-- own folder and are placed relative to the shoulder rather than the feet
-	local armPivot = Vector3.new((torso.X + limb.X) / 2, torsoY + limb.Y / 2, 0)
-	local arm = newPart("RightArm", limb, SHIRT, rig)
-	arm:SetAttribute("Pivot", armPivot)
-	arm:SetAttribute("Offset", Vector3.new(0, -limb.Y / 2, 0))
+	-- The stock Roblox face, so he actually looks at what he is chopping
+	local face = Instance.new("Decal")
+	face.Name = "Face"
+	face.Texture = "rbxasset://textures/face.png"
+	face.Face = Enum.NormalId.Front
+	face.Parent = headPart
 
-	local handle = newPart("AxeHandle", Vector3.new(0.12, 1.05, 0.12) * scale * 2, AXE_HANDLE, rig)
-	handle:SetAttribute("Pivot", armPivot)
-	handle:SetAttribute("Offset", Vector3.new(0, -limb.Y * 0.95, 0.10 * scale))
+	-- The chopping arm and axe are positioned explicitly each frame (see
+	-- poseArm) rather than carried as fixed offsets, so the blade can be made
+	-- to land on the trunk instead of swinging through empty air.
+	newPart("RightArm", limb, SHIRT, rig)
 
-	local blade = newPart("AxeHead", Vector3.new(0.55, 0.42, 0.16) * scale * 2, AXE_HEAD, rig)
-	blade.Material = Enum.Material.Metal
-	blade:SetAttribute("Pivot", armPivot)
-	blade:SetAttribute("Offset", Vector3.new(0.12 * scale, -limb.Y * 1.42, 0.10 * scale))
+	newPart("AxeHandle", Vector3.new(0.09, 0.95, 0.09) * scale * 2, AXE_HANDLE, rig)
+
+	-- An axe head reads as an axe only if it tapers: a small eye where it
+	-- meets the shaft, and a wedge flaring out to the cutting edge.
+	local eye = newPart("AxeEye", Vector3.new(0.16, 0.20, 0.16) * scale * 2, AXE_HEAD, rig)
+	eye.Material = Enum.Material.Metal
+
+	local bit = Instance.new("WedgePart")
+	bit.Name = "AxeBit"
+	bit.Size = Vector3.new(0.10, 0.34, 0.36) * scale * 2
+	bit.Color = AXE_HEAD
+	bit.Material = Enum.Material.Metal
+	bit.Anchored = true
+	bit.CanCollide = false
+	bit.CanQuery = false
+	bit.CanTouch = false
+	bit.Parent = rig
 
 	rig.PrimaryPart = rig:FindFirstChild("Torso")
 	return rig
@@ -107,34 +121,79 @@ local function machineBase(instance)
 	return floor * (pivot - pivot.Position)
 end
 
-local function poseRig(rig, baseCFrame, standAt, facing, swing, stride)
+-- The frame the worker stands in: at his feet, looking where he is going.
+--
+-- Built with CFrame.lookAt so the frame follows Roblox's own convention,
+-- where LookVector is -Z. That is the same convention a Part's Front face
+-- uses, so the face decal lands on the side he actually looks at without any
+-- guesswork about which way round the rig is.
+local function rigFrame(baseCFrame, standAt, lookDirection)
+	local flat = Vector3.new(lookDirection.X, 0, lookDirection.Z)
+	if flat.Magnitude < 1e-3 then
+		flat = Vector3.zAxis
+	end
+	return baseCFrame * CFrame.lookAt(standAt, standAt + flat.Unit)
+end
+
+local function poseBody(rig, frame, stride)
 	for _, part in ipairs(rig:GetChildren()) do
 		if part:IsA("BasePart") then
 			local offset = part:GetAttribute("Offset")
 			if offset then
-				local pivotOffset = part:GetAttribute("Pivot")
-				local local_
-				if pivotOffset then
-					-- Arm and axe rotate about the shoulder
-					local_ = CFrame.new(standAt + pivotOffset)
-						* CFrame.Angles(swing, 0, 0)
-						* CFrame.new(offset)
-				else
-					local lean = 0
-					if part.Name == "LeftLeg" then
-						lean = stride
-					elseif part.Name == "RightLeg" then
-						lean = -stride
-					elseif part.Name == "LeftArm" then
-						lean = -stride
-					end
-					local_ = CFrame.new(standAt + offset) * CFrame.Angles(lean, 0, 0)
+				local lean = 0
+				if part.Name == "LeftLeg" then
+					lean = stride
+				elseif part.Name == "RightLeg" then
+					lean = -stride
+				elseif part.Name == "LeftArm" then
+					lean = -stride
 				end
-
-				part.CFrame = baseCFrame * (CFrame.new(standAt) * CFrame.Angles(0, facing, 0) * CFrame.new(-standAt)) * local_
+				part.CFrame = frame * CFrame.new(offset) * CFrame.Angles(lean, 0, 0)
 			end
 		end
 	end
+end
+
+-- Places the arm and axe by aiming them at a point, so the blade can be put
+-- exactly on the trunk rather than at the end of a guessed rotation.
+local function poseArm(rig, frame, scale, targetInFrame)
+	local arm = rig:FindFirstChild("RightArm")
+	local handle = rig:FindFirstChild("AxeHandle")
+	local eye = rig:FindFirstChild("AxeEye")
+	local bit = rig:FindFirstChild("AxeBit")
+	if not (arm and handle and eye and bit) then
+		return
+	end
+
+	local limbLength = R6.limb.Y * scale
+	local shoulder = Vector3.new(
+		(R6.torso.X + R6.limb.X) / 2 * scale,
+		(R6.limb.Y + R6.torso.Y / 2) * scale + limbLength / 2,
+		0
+	)
+
+	local reach = targetInFrame - shoulder
+	local distance = reach.Magnitude
+	if distance < 0.05 then
+		return
+	end
+	local direction = reach / distance
+
+	-- Arm covers the first stretch, the shaft spans the rest to the blade
+	local armEnd = shoulder + direction * limbLength
+	-- Up must not be parallel to the aim, and the axe hangs straight down at
+	-- rest, so the sideways axis is used instead of world up.
+	local aim = CFrame.lookAt(Vector3.zero, direction, Vector3.xAxis) * CFrame.Angles(math.rad(-90), 0, 0)
+
+	arm.CFrame = frame * (CFrame.new(shoulder + direction * (limbLength / 2)) * (aim - aim.Position))
+
+	local shaftLength = math.max(distance - limbLength, 0.05)
+	handle.Size = Vector3.new(handle.Size.X, shaftLength, handle.Size.Z)
+	handle.CFrame = frame * (CFrame.new(armEnd + direction * (shaftLength / 2)) * (aim - aim.Position))
+
+	eye.CFrame = frame * (CFrame.new(targetInFrame - direction * 0.10) * (aim - aim.Position))
+	bit.CFrame = frame
+		* (CFrame.new(targetInFrame + direction * 0.06) * (aim - aim.Position) * CFrame.Angles(0, math.rad(90), 0))
 end
 
 -- ---------------------------------------------------------------------------
@@ -275,7 +334,9 @@ function PlotWorkers.Update(machine, machineData, progress)
 	if not base then
 		return
 	end
-	local position, facing, swing, stride = standAtDrop, 0, 0, 0
+	local position, stride = standAtDrop, 0
+	local lookAt = standAtTree - standAtDrop
+	local chopBlend = nil
 
 	local phase = {
 		walkOut = config.walkOut or 0.22,
@@ -287,20 +348,20 @@ function PlotWorkers.Update(machine, machineData, progress)
 		local t = progress / phase.walkOut
 		position = standAtDrop:Lerp(standAtTree, t)
 		stride = math.sin(progress * 40) * 0.45
-		facing = math.atan2(standAtTree.X - standAtDrop.X, standAtTree.Z - standAtDrop.Z)
+		lookAt = standAtTree - standAtDrop
 	elseif progress < phase.chop then
 		position = standAtTree
-		-- Repeated overhead swings while the tree is still standing
-		swing = -math.abs(math.sin((progress - phase.walkOut) * 26)) * 2.2
-		facing = math.atan2(tree.X - standAtTree.X, tree.Z - standAtTree.Z)
+		lookAt = Vector3.new(tree.X, 0, tree.Z) - standAtTree
+		-- 0 is the axe raised behind him, 1 is the blade buried in the trunk
+		chopBlend = 0.5 - 0.5 * math.cos((progress - phase.walkOut) * 26)
 	elseif progress < phase.carry then
 		local t = (progress - phase.chop) / (phase.carry - phase.chop)
 		position = standAtTree:Lerp(standAtDrop, t)
 		stride = math.sin(progress * 40) * 0.45
-		facing = math.atan2(standAtDrop.X - standAtTree.X, standAtDrop.Z - standAtTree.Z)
+		lookAt = standAtDrop - standAtTree
 	else
 		position = standAtDrop
-		facing = math.atan2(standAtTree.X - standAtDrop.X, standAtTree.Z - standAtDrop.Z)
+		lookAt = standAtTree - standAtDrop
 	end
 
 	-- Fell the tree at the end of the chopping phase
@@ -309,7 +370,30 @@ function PlotWorkers.Update(machine, machineData, progress)
 		machine.workerFelled[treeIndex] = machine.workerCycle or 0
 	end
 
-	poseRig(machine.worker, base, position, facing, swing, stride)
+	local frame = rigFrame(base, position, lookAt)
+	local scale = config.scale or 0.5
+	poseBody(machine.worker, frame, stride)
+
+	-- Where the blade should be. While chopping that is the trunk itself, at
+	-- the height a lumberjack actually cuts; otherwise the axe simply hangs.
+	local limbLength = R6.limb.Y * scale
+	local shoulderHeight = (R6.limb.Y + R6.torso.Y / 2) * scale + limbLength / 2
+	local resting = Vector3.new(
+		(R6.torso.X + R6.limb.X) / 2 * scale,
+		shoulderHeight - limbLength * 1.55,
+		-0.10
+	)
+
+	local aimAt = resting
+	if chopBlend then
+		local trunkInFrame = frame:PointToObjectSpace(
+			(base * CFrame.new(Vector3.new(tree.X, groundY + (config.chopHeight or 0.55), tree.Z))).Position
+		)
+		local raised = Vector3.new(resting.X, shoulderHeight + limbLength * 0.55, limbLength * 0.45)
+		aimAt = raised:Lerp(trunkInFrame, chopBlend)
+	end
+
+	poseArm(machine.worker, frame, scale, aimAt)
 
 	-- Carry the log between felling and dropping it on the pile
 	local carrying = progress >= phase.chop and progress < phase.carry
@@ -332,10 +416,9 @@ function PlotWorkers.Update(machine, machineData, progress)
 	end
 
 	if log then
-		local scale = config.scale or 0.5
-		local hold = position + Vector3.new(0, R6.limb.Y * scale + R6.torso.Y * scale * 0.55, 0)
-		log.CFrame = base
-			* (CFrame.new(hold) * CFrame.Angles(0, facing, 0) * CFrame.new(0, 0, -0.55 * scale * 2))
+		-- Slung across his back: forward is -Z, so behind him is +Z
+		log.CFrame = frame
+			* CFrame.new(0, (R6.limb.Y + R6.torso.Y * 0.55) * scale, 0.62 * scale * 2)
 	end
 end
 

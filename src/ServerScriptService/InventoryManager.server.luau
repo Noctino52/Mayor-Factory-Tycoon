@@ -148,7 +148,14 @@ end
 
 local function shouldAlignModelToFootprint(itemName)
     local adjustment = ITEM_VISUAL_ADJUSTMENTS[itemName]
-    return adjustment and adjustment.alignToFootprint == true
+    if adjustment and adjustment.alignToFootprint ~= nil then
+        return adjustment.alignToFootprint == true
+    end
+
+    -- Machines sit on the ground by default. The alternative path assumes the
+    -- model's pivot is at its vertical centre, which is false for anything
+    -- built with its base at the bottom, and leaves the machine hovering.
+    return Definitions.GetMachine(itemName) ~= nil
 end
 
 local function getVisualRotation(itemName, rotation)
@@ -545,6 +552,10 @@ local IMPORTED_MATERIAL_STYLES = {
     Blade = { color = Color3.fromRGB(189, 196, 204), material = Enum.Material.Metal },
     WhiteTank = { color = Color3.fromRGB(224, 224, 217), material = Enum.Material.SmoothPlastic },
     Rubber = { color = Color3.fromRGB(9, 9, 10), material = Enum.Material.SmoothPlastic },
+    Grass = { color = Color3.fromRGB(34, 139, 34), material = Enum.Material.Grass },
+    Dirt = { color = Color3.fromRGB(112, 78, 48), material = Enum.Material.Ground },
+    Bark = { color = Color3.fromRGB(87, 56, 32), material = Enum.Material.Wood },
+    Foliage = { color = Color3.fromRGB(38, 108, 44), material = Enum.Material.Grass },
 }
 
 local function applyImportedMaterialStyles(template)

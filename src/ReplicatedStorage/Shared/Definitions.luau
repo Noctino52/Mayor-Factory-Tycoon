@@ -307,6 +307,8 @@ local MACHINES = {
 		outputItem = "Log",
 		outputRate = 1,
 		outputFrequency = 5, -- seconds between outputs
+		-- Logs leave on the side the model's log pile is on
+		outputRotationOffset = 2,
 		powerRequired = 10,
 		-- Drives the lumberjack animation. Tree positions are read from the
 		-- placed model at runtime; only the count is declared here.

@@ -310,7 +310,12 @@ end
 
 local function shouldAlignModelToFootprint(itemName)
     local adjustment = ITEM_VISUAL_ADJUSTMENTS[itemName]
-    return adjustment and adjustment.alignToFootprint == true
+    if adjustment and adjustment.alignToFootprint ~= nil then
+        return adjustment.alignToFootprint == true
+    end
+
+    -- Matches the server: machines rest on the ground unless told otherwise
+    return Definitions.GetMachine(itemName) ~= nil
 end
 
 local function getVisualRotation(itemName, rotation)
