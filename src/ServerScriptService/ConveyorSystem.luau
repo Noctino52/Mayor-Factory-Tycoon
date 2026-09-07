@@ -854,6 +854,40 @@ local function sellItem(activeItem, cellInfo, sellCellX, sellCellZ, fadePosition
     return sold == true
 end
 
+-- Where an item should stop when the next cell is a machine: at the mouth,
+-- with its leading face on the machine's boundary. Driving it to the middle
+-- of the cell like any other hop buries it inside the machine's own geometry
+-- for the whole approach, which is what makes it look like it clips through.
+local function machineIntakePosition(activeItem, startPosition, targetPosition)
+    local approach = targetPosition - startPosition
+    local direction = Vector3.new(approach.X, 0, approach.Z)
+    if direction.Magnitude < 0.001 then
+        return targetPosition
+    end
+    direction = direction.Unit
+
+    local model = activeItem.model
+    local size = Vector3.new(1, 1, 1)
+    if model and model.Parent then
+        if model:IsA("BasePart") then
+            size = model.Size
+        else
+            local _, modelSize = model:GetBoundingBox()
+            size = modelSize
+        end
+    end
+
+    -- How far the item reaches ahead of its own centre along the approach
+    local reach = math.abs(size.X * direction.X) / 2 + math.abs(size.Z * direction.Z) / 2
+    local stopShort = GRID_UNIT_SIZE / 2 + reach
+
+    if approach.Magnitude <= stopShort then
+        return startPosition
+    end
+
+    return targetPosition - direction * stopShort
+end
+
 local function feedMachine(cellInfo, activeItem)
     if not machineInputHandler then
         destroyProductionItem(activeItem, true)
@@ -863,7 +897,7 @@ local function feedMachine(cellInfo, activeItem)
     local accepted, message = machineInputHandler(activeItem.player, cellInfo.instance, activeItem.itemName, activeItem.model, activeItem)
     if accepted then
         activeItem.waitingForMachine = false
-        destroyProductionItem(activeItem, false)
+        fadeProductionItemInPlace(activeItem, nil)
         return true
     end
 
@@ -1034,6 +1068,10 @@ local function tryStartNextSegment(activeItem)
     if not targetPosition then
         destroyProductionItem(activeItem, true)
         return
+    end
+
+    if nextCell and nextCell.type == "machine" then
+        targetPosition = machineIntakePosition(activeItem, startPosition, targetPosition)
     end
 
     if mergerToAdvance and mergerInputLane then

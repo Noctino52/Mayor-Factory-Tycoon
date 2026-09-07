@@ -18,6 +18,20 @@
 
 local PlotWorkers = {}
 
+-- The same models the conveyors carry. What the worker hauls to the pile has
+-- to be the item that comes out of the machine a moment later, or the handoff
+-- from the farm to the belt jumps.
+local productionItemModule = nil
+do
+    local starterScripts = game:GetService("StarterPlayer"):FindFirstChild("StarterPlayerScripts")
+    local moduleScript = starterScripts and starterScripts:FindFirstChild("ProductionItems")
+    if moduleScript and moduleScript:IsA("ModuleScript") then
+        pcall(function()
+            productionItemModule = require(moduleScript)
+        end)
+    end
+end
+
 -- Classic R6 part sizes, in studs, before the per-machine scale is applied
 local R6 = {
 	torso = Vector3.new(2, 2, 1),
@@ -108,6 +122,37 @@ end
 
 local function getCarriedLog(rig)
 	return rig:FindFirstChild("CarriedLog")
+end
+
+-- The log on his shoulder is the machine's own output item, built by the same
+-- factory the conveyors use, so nothing changes shape when it is handed over.
+local function buildCarriedItem(itemName)
+	if not productionItemModule or not itemName then
+		return nil
+	end
+
+	local created, item = pcall(productionItemModule.CreateInstance, itemName)
+	if not created or not item then
+		return nil
+	end
+
+	item.Name = "CarriedLog"
+	if item:IsA("BasePart") then
+		item.Anchored = true
+		item.CanCollide = false
+		item.CanQuery = false
+		item.CanTouch = false
+	end
+	for _, descendant in ipairs(item:GetDescendants()) do
+		if descendant:IsA("BasePart") then
+			descendant.Anchored = true
+			descendant.CanCollide = false
+			descendant.CanQuery = false
+			descendant.CanTouch = false
+		end
+	end
+
+	return item
 end
 
 -- ---------------------------------------------------------------------------
@@ -399,26 +444,24 @@ function PlotWorkers.Update(machine, machineData, progress)
 	local carrying = progress >= phase.chop and progress < phase.carry
 	local log = getCarriedLog(machine.worker)
 	if carrying and not log then
-		log = Instance.new("Part")
-		log.Name = "CarriedLog"
-		log.Shape = Enum.PartType.Cylinder
-		log.Size = Vector3.new(1.30, 0.42, 0.42)
-		log.Color = Color3.fromRGB(124, 78, 43)
-		log.Material = Enum.Material.Wood
-		log.Anchored = true
-		log.CanCollide = false
-		log.CanQuery = false
-		log.CanTouch = false
-		log.Parent = machine.worker
+		log = buildCarriedItem(machineData.outputItem)
+		if log then
+			log.Parent = machine.worker
+		end
 	elseif not carrying and log then
 		log:Destroy()
 		log = nil
 	end
 
 	if log then
-		-- Slung across his back: forward is -Z, so behind him is +Z
-		log.CFrame = frame
-			* CFrame.new(0, (R6.limb.Y + R6.torso.Y * 0.55) * scale, 0.62 * scale * 2)
+		-- Shouldered: forward is -Z, so behind him is +Z. Far enough back to
+		-- clear his own torso, and low enough not to sit over his head.
+		local carry = frame * CFrame.new(0, (R6.limb.Y + R6.torso.Y * 0.45) * scale, 0.78 * scale * 2)
+		if log:IsA("BasePart") then
+			log.CFrame = carry
+		else
+			log:PivotTo(carry)
+		end
 	end
 end
 

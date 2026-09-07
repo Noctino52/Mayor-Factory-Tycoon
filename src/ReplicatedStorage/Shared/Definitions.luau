@@ -35,7 +35,8 @@ local ITEMS = {
 		value = 15,
 		rarity = "common",
 		isProduction = true,
-		size = Vector3.new(1.35, 0.45, 1.35),
+		-- A board sawn out of a Log: same length, a fraction of its section
+		size = Vector3.new(2.0, 0.26, 0.7),
 	},
 	Beam = {
 		name = "Beam",
@@ -321,7 +322,10 @@ local MACHINES = {
 			treeCount = 6,
 			walkOut = 0.22,
 			chopUntil = 0.55,
-			carryUntil = 0.85,
+			-- He reaches the pile just as the machine puts a log on the belt,
+			-- so the one he is carrying and the one that appears are the same
+			-- log as far as the eye is concerned
+			carryUntil = 0.94,
 		},
 	},
 	MineEntrance = {
@@ -353,10 +357,12 @@ local MACHINES = {
 		processingTime = 3,
 		inputQueueSize = 2,
 		powerRequired = 8,
-		-- Drives the on-machine cutting animation: where the piece rests
-		-- (studs above the machine's base), how far the saw head sweeps,
-		-- and how far through the cut the log becomes a plank.
-		workpiece = { height = 1.25, headTravel = 2.2, swapAt = 0.62 },
+		-- Drives the on-machine cutting animation. bedHeight is the surface
+		-- the piece sits on, in studs above the machine's base; whatever is
+		-- being worked rests on top of it, so a log and a plank both sit
+		-- right on the bunks. headTravel is the sweep of the saw head, and
+		-- swapAt how far through the cut the log becomes a plank.
+		workpiece = { bedHeight = 0.93, headTravel = 2.2, swapAt = 0.62 },
 	},
 	BeamCutter = {
 		name = "BeamCutter",

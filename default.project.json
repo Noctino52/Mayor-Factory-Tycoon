@@ -45,7 +45,6 @@
         "ProductionItemTemplates": {
           "$className": "Folder",
           "IronOre": {"$path": "src/Workspace/Models/Iron ore.rbxm"},
-          "Plank": {"$path": "src/Workspace/Models/Plank.rbxm"},
           "Beam": {"$path": "src/Workspace/Models/WoodBeam.rbxm"},
           "Crate": {"$path": "src/Workspace/Models/WoodCrate.rbxm"},
           "Stone": {"$path": "src/Workspace/Models/Stone.rbxm"},

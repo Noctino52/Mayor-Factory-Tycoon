@@ -304,6 +304,7 @@ local function clearWorkpiece(machine)
     machine.workpieceItem = nil
     machine.workpieceCFrame = nil
     machine.workpiecePivot = nil
+    machine.workpieceScale = nil
     restoreHeadParts(machine)
 end
 
@@ -316,12 +317,17 @@ local function captureWorkpieceAnchor(machine, config)
     -- Measured before the workpiece is parented in, so it cannot drag the
     -- bounding box of the machine around with it.
     local boundsCFrame, boundsSize = instance:GetBoundingBox()
-    local restY = boundsCFrame.Position.Y - boundsSize.Y / 2 + (config.height or 1)
+    local scale = instance:IsA("Model") and instance:GetScale() or 1
+    local bedY = boundsCFrame.Position.Y - boundsSize.Y / 2 + (config.bedHeight or 1) * scale
     local pivot = instance:GetPivot()
 
-    machine.workpieceCFrame = CFrame.new(boundsCFrame.Position.X, restY, boundsCFrame.Position.Z)
+    -- The working surface, not where the piece goes: placeWorkpiece stands
+    -- each piece on top of it, so a fat log and a thin plank both sit on the
+    -- bed instead of one floating and the other sinking into it.
+    machine.workpieceCFrame = CFrame.new(boundsCFrame.Position.X, bedY, boundsCFrame.Position.Z)
         * (pivot - pivot.Position)
     machine.workpiecePivot = pivot
+    machine.workpieceScale = scale
 
     local origins = {}
     for _, descendant in ipairs(instance:GetDescendants()) do
@@ -377,16 +383,32 @@ end
 
 local function placeWorkpiece(machine)
     local model = machine.workpiece
-    local target = machine.workpieceCFrame
-    if not model or not model.Parent or not target then
+    local bed = machine.workpieceCFrame
+    if not model or not model.Parent or not bed then
         return
     end
 
-    if model:IsA("BasePart") then
-        model.CFrame = target
-    else
-        model:PivotTo(target)
+    local function setPivot(cframe)
+        if model:IsA("BasePart") then
+            model.CFrame = cframe
+        else
+            model:PivotTo(cframe)
+        end
     end
+
+    -- Put the pivot on the bed, then lift by however far the piece hangs
+    -- below it. Measuring beats assuming the pivot is at the centre: it is
+    -- not, for every model, and that is what leaves pieces half sunk.
+    setPivot(bed)
+
+    local centre, size
+    if model:IsA("BasePart") then
+        centre, size = model.CFrame, model.Size
+    else
+        centre, size = model:GetBoundingBox()
+    end
+
+    setPivot(bed + Vector3.new(0, bed.Position.Y - (centre.Position.Y - size.Y / 2), 0))
 end
 
 local function sweepHead(machine, config, progress)
@@ -405,7 +427,8 @@ local function sweepHead(machine, config, progress)
     end
 
     -- Travels the length of the piece across the cut, centred on the machine
-    local offset = instance:GetPivot().RightVector * (travel * (progress - 0.5))
+    local scale = machine.workpieceScale or 1
+    local offset = instance:GetPivot().RightVector * (travel * scale * (progress - 0.5))
     for part, origin in pairs(machine.headOrigins) do
         if part.Parent then
             part.CFrame = origin + offset

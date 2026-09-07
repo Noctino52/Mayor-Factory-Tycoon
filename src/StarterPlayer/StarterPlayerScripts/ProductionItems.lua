@@ -18,7 +18,7 @@ local ITEM_COLORS = {
 
 local ITEM_MAX_BOUNDS = {
     IronOre = Vector3.new(1.05, 0.75, 1.05),
-    Plank = Vector3.new(1.35, 0.45, 1.35),
+    Plank = Vector3.new(2.0, 0.3, 0.75),
     Beam = Vector3.new(1.5, 0.45, 0.65),
     Crate = Vector3.new(1.15, 1.0, 1.15),
     Stone = Vector3.new(0.85, 0.65, 0.85),
@@ -33,6 +33,7 @@ local ITEM_VISUAL_SCALE = {
 
 local ITEM_FALLBACK_SIZES = {
     Beam = Vector3.new(4.5, 1.35, 1.95),
+    Plank = Vector3.new(2.0, 0.26, 0.7),
     Crate = Vector3.new(1.0, 0.9, 1.0),
     Brick = Vector3.new(1.1, 0.5, 0.55),
 }
@@ -222,6 +223,53 @@ local function createLogInstance()
     return log
 end
 
+local function createPlankInstance()
+    local size = Vector3.new(2.0, 0.26, 0.7)
+    local plank = Instance.new("Model")
+
+    local body = Instance.new("Part")
+    body.Name = "PlankBody"
+    body.Size = size
+    body.CFrame = CFrame.new(0, 0, 0)
+    body.Material = Enum.Material.WoodPlanks
+    body.Color = ProductionItems.GetColor("Plank")
+    body.Parent = plank
+
+    -- Rough sawn ends, a shade darker than the planed faces
+    for index, offsetX in ipairs({ -size.X / 2 + 0.02, size.X / 2 - 0.02 }) do
+        local endGrain = Instance.new("Part")
+        endGrain.Name = "PlankEnd" .. index
+        endGrain.Size = Vector3.new(0.04, size.Y * 1.01, size.Z * 1.01)
+        endGrain.CFrame = CFrame.new(offsetX, 0, 0)
+        endGrain.Material = Enum.Material.Wood
+        endGrain.Color = Color3.fromRGB(156, 112, 62)
+        endGrain.Parent = plank
+    end
+
+    -- Two grain lines down the face, so it reads as a board and not a slab
+    for index, offsetZ in ipairs({ -0.18, 0.16 }) do
+        local grain = Instance.new("Part")
+        grain.Name = "PlankGrain" .. index
+        grain.Size = Vector3.new(size.X * 0.9, 0.02, 0.06)
+        grain.CFrame = CFrame.new(0, size.Y / 2 - 0.005, offsetZ)
+        grain.Material = Enum.Material.Wood
+        grain.Color = Color3.fromRGB(163, 118, 68)
+        grain.Parent = plank
+    end
+
+    plank.PrimaryPart = body
+    configureInstance(plank, "Plank")
+    return plank
+end
+
+-- Items whose look lives here in code rather than in an imported model.
+-- Checked before the template folder: a template left behind in the place
+-- file would otherwise quietly shadow the code and nothing would change.
+local PROCEDURAL_ITEMS = {
+    Log = createLogInstance,
+    Plank = createPlankInstance,
+}
+
 local function createBrickInstance()
     local brick = Instance.new("Model")
 
@@ -256,6 +304,11 @@ local function createBrickInstance()
 end
 
 function ProductionItems.CreateInstance(itemName)
+    local builder = PROCEDURAL_ITEMS[itemName]
+    if builder then
+        return builder()
+    end
+
     local template = findTemplate(itemName)
     if template then
         local instance = template:Clone()
@@ -275,8 +328,6 @@ function ProductionItems.CreateInstance(itemName)
         return createCrateInstance()
     elseif itemName == "Brick" then
         return createBrickInstance()
-    elseif itemName == "Log" then
-        return createLogInstance()
     end
 
     return ProductionItems.CreatePart(itemName)
