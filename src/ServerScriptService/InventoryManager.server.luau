@@ -556,6 +556,11 @@ local IMPORTED_MATERIAL_STYLES = {
     Dirt = { color = Color3.fromRGB(112, 78, 48), material = Enum.Material.Ground },
     Bark = { color = Color3.fromRGB(87, 56, 32), material = Enum.Material.Wood },
     Foliage = { color = Color3.fromRGB(38, 108, 44), material = Enum.Material.Grass },
+    WhiteBody = { color = Color3.fromRGB(233, 233, 228), material = Enum.Material.SmoothPlastic },
+    LightGrey = { color = Color3.fromRGB(168, 171, 173), material = Enum.Material.Metal },
+    DarkPanel = { color = Color3.fromRGB(18, 18, 21), material = Enum.Material.SmoothPlastic },
+    RedAccent = { color = Color3.fromRGB(168, 26, 26), material = Enum.Material.SmoothPlastic },
+    Screen = { color = Color3.fromRGB(28, 68, 105), material = Enum.Material.Neon },
 }
 
 local function applyImportedMaterialStyles(template)
@@ -613,33 +618,6 @@ local function createMachineBase(model, material, color)
     base.Parent = model
     model.PrimaryPart = base
     return base
-end
-
--- Vector3 size of a production item as it visually appears on a belt, used to
--- shape machine mouths/slots so they match the item passing through them.
-local function getItemVisualSize(itemName)
-    local itemData = itemName and Definitions.GetItem(itemName)
-    return (itemData and itemData.size) or Vector3.new(1, 1, 1)
-end
-
--- Builds a flush, item-shaped opening on the -X (input) or +X (output) face
--- of a machine body. `faceX` is the local X position of that face; the slot
--- is sized from the item's Y/Z cross-section (the face you see as it arrives
--- or leaves along the belt) plus a small clearance margin.
-local function createFlowSlot(model, name, itemName, faceX, centerY, color, glow)
-    local itemSize = getItemVisualSize(itemName)
-    local slot = Instance.new("Part")
-    slot.Name = name
-    slot.Size = Vector3.new(0.15, itemSize.Y + 0.14, itemSize.Z + 0.14)
-    slot.CFrame = CFrame.new(faceX, centerY, 0)
-    slot.Anchored = true
-    slot.CanCollide = false
-    slot.CanQuery = false
-    slot.CanTouch = false
-    slot.Material = glow and Enum.Material.Neon or Enum.Material.SmoothPlastic
-    slot.Color = color
-    slot.Parent = model
-    return slot
 end
 
 local function createConveyorTemplate()
@@ -842,123 +820,6 @@ local function createTransportJunctionTemplate(itemName)
     junction.Parent = templatesFolder
 
     return junction
-end
-
-local function createBeamCutterTemplate()
-    local existing = templatesFolder:FindFirstChild("BeamCutter")
-    if existing then
-        return existing
-    end
-
-    local machineData = Definitions.GetMachine("BeamCutter")
-    local beamCutter = Instance.new("Model")
-    beamCutter.Name = "BeamCutter"
-
-    local function addStrut(name, p1, p2, thickness, material, color)
-        local mid = (p1 + p2) / 2
-        local length = (p2 - p1).Magnitude
-        local strut = Instance.new("Part")
-        strut.Name = name
-        strut.Size = Vector3.new(thickness, length, thickness)
-        strut.CFrame = CFrame.new(mid, p2) * CFrame.Angles(math.rad(90), 0, 0)
-        strut.Anchored = true
-        strut.CanCollide = false
-        strut.CanQuery = false
-        strut.CanTouch = false
-        strut.Material = material
-        strut.Color = color
-        strut.Parent = beamCutter
-        return strut
-    end
-
-    createMachineBase(beamCutter, Enum.Material.Concrete, Color3.fromRGB(78, 80, 82))
-
-    -- Teal press bed the Plank travels along
-    for index, offsetZ in ipairs({ -0.9, 0.9 }) do
-        local rail = Instance.new("Part")
-        rail.Name = "BedRail" .. index
-        rail.Size = Vector3.new(5.0, 0.2, 0.24)
-        rail.CFrame = CFrame.new(0, 0.55, offsetZ)
-        rail.Anchored = true
-        rail.CanCollide = false
-        rail.CanQuery = false
-        rail.CanTouch = false
-        rail.Material = Enum.Material.Metal
-        rail.Color = Color3.fromRGB(54, 132, 124)
-        rail.Parent = beamCutter
-    end
-
-    -- A row of hydraulic clamp presses, like a finger-joint/glulam press line
-    local clampColor = Color3.fromRGB(222, 62, 30)
-    for stationIndex, stationX in ipairs({ -1.4, 0, 1.4 }) do
-        local post = Instance.new("Part")
-        post.Name = "ClampPost" .. stationIndex
-        post.Size = Vector3.new(0.2, 1.3, 0.2)
-        post.CFrame = CFrame.new(stationX, 1.1, 1.0)
-        post.Anchored = true
-        post.CanCollide = true
-        post.Material = Enum.Material.Metal
-        post.Color = Color3.fromRGB(40, 96, 90)
-        post.Parent = beamCutter
-
-        addStrut(
-            "HydraulicCylinder" .. stationIndex,
-            Vector3.new(stationX - 0.18, 0.85, 1.0),
-            Vector3.new(stationX - 0.18, 1.75, 1.0),
-            0.13,
-            Enum.Material.Metal,
-            Color3.fromRGB(35, 55, 140)
-        )
-
-        local arm = Instance.new("WedgePart")
-        arm.Name = "ClampArm" .. stationIndex
-        arm.Size = Vector3.new(0.5, 0.65, 1.3)
-        arm.CFrame = CFrame.new(stationX, 1.75, 0.4) * CFrame.Angles(math.rad(-90), 0, 0)
-        arm.Anchored = true
-        arm.CanCollide = false
-        arm.CanQuery = false
-        arm.CanTouch = false
-        arm.Material = Enum.Material.Metal
-        arm.Color = clampColor
-        arm.Parent = beamCutter
-
-        local foot = Instance.new("Part")
-        foot.Name = "ClampFoot" .. stationIndex
-        foot.Size = Vector3.new(0.4, 0.15, 0.55)
-        foot.CFrame = CFrame.new(stationX, 1.05, -0.15)
-        foot.Anchored = true
-        foot.CanCollide = false
-        foot.CanQuery = false
-        foot.CanTouch = false
-        foot.Material = Enum.Material.Metal
-        foot.Color = Color3.fromRGB(30, 30, 32)
-        foot.Parent = beamCutter
-    end
-
-    -- Yellow gear-motor unit at the feed end
-    local motor = Instance.new("Part")
-    motor.Name = "MotorUnit"
-    motor.Shape = Enum.PartType.Cylinder
-    motor.Size = Vector3.new(0.5, 0.4, 0.4)
-    motor.CFrame = CFrame.new(-2.3, 0.8, 1.0) * CFrame.Angles(0, math.rad(90), 0)
-    motor.Anchored = true
-    motor.CanCollide = false
-    motor.CanQuery = false
-    motor.CanTouch = false
-    motor.Material = Enum.Material.Metal
-    motor.Color = Color3.fromRGB(225, 190, 40)
-    motor.Parent = beamCutter
-
-    -- Input mouth shaped to fit the Plank, output slot shaped to fit the Beam
-    local inputItem = machineData and machineData.inputItem or "Plank"
-    local outputItem = machineData and machineData.outputItem or "Beam"
-
-    createFlowSlot(beamCutter, "InputSlot", inputItem, -2.5, 1.05, Color3.fromRGB(22, 20, 18), false)
-    createFlowSlot(beamCutter, "OutputSlot", outputItem, 2.5, 1.05, Color3.fromRGB(235, 150, 60), true)
-
-    beamCutter.Parent = templatesFolder
-
-    return beamCutter
 end
 
 local function createQuarryTemplate()
@@ -1793,10 +1654,6 @@ local function createSellZoneTemplate(itemName)
 end
 
 local function ensureItemTemplate(itemName)
-    if itemName == "BeamCutter" then
-        return createBeamCutterTemplate()
-    end
-
     if itemName == "Quarry" then
         return createQuarryTemplate()
     end

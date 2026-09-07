@@ -374,6 +374,9 @@ local MACHINES = {
 		processingTime = 4,
 		inputQueueSize = 2,
 		powerRequired = 12,
+		-- The plank rolls in on the roller table, the bridge rips it down the
+		-- table slot, and the beam comes off the outfeed on the far side.
+		workpiece = { bedHeight = 1.16, travel = 2.7, headTravel = 3.0, swapAt = 0.55 },
 	},
 	CrateAssembler = {
 		name = "CrateAssembler",

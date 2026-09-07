@@ -36,6 +36,7 @@
           "TreeFarm": {"$path": "src/Workspace/Models/treefarm.rbxm"},
           "MineEntrance": {"$path": "src/ReplicatedStorage/Shared/ItemTemplates/MineEntrace.rbxm"},
           "Sawmill": {"$path": "src/Workspace/Models/sawmill.rbxm"},
+          "BeamCutter": {"$path": "src/Workspace/Models/beamcutter.rbxm"},
           "StoneCutter": {"$path": "src/Workspace/Models/StoneCutter.rbxm"},
           "Furnace": {"$path": "src/Workspace/Models/Furnace.rbxm"},
           "SmallGenerator": {"$path": "src/Workspace/Models/Small Generator.rbxm"},

@@ -1,6 +1,7 @@
 local ProductionItems = {}
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Definitions = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Definitions"))
 
 ProductionItems.Size = Vector3.new(0.5, 0.5, 0.5)
 
@@ -29,6 +30,13 @@ local ITEM_FALLBACK_SIZES = {
     Crate = Vector3.new(1.0, 0.9, 1.0),
     Brick = Vector3.new(1.1, 0.5, 0.55),
 }
+
+-- The size an item is declared at, which is what the machines that handle it
+-- are dimensioned against. One place to change a piece of timber.
+local function declaredSize(itemName)
+    local itemData = Definitions.GetItem(itemName)
+    return (itemData and itemData.size) or ProductionItems.Size
+end
 
 function ProductionItems.GetColor(itemName)
     return ITEM_COLORS[itemName] or Color3.fromRGB(235, 220, 120)
@@ -157,7 +165,7 @@ local function createCrateInstance()
 end
 
 local function createLogInstance()
-    local size = Vector3.new(1.6, 0.66, 0.66)
+    local size = declaredSize("Log")
     local log = Instance.new("Model")
 
     local body = Instance.new("Part")
@@ -182,11 +190,11 @@ local function createLogInstance()
     end
 
     -- A couple of darker bark bands to break up the barrel
-    for index, offsetX in ipairs({ -0.33, 0.33 }) do
+    for index, offsetX in ipairs({ -size.X * 0.21, size.X * 0.21 }) do
         local band = Instance.new("Part")
         band.Name = "LogBand" .. index
         band.Shape = Enum.PartType.Cylinder
-        band.Size = Vector3.new(0.12, size.Y * 1.02, size.Z * 1.02)
+        band.Size = Vector3.new(size.X * 0.075, size.Y * 1.02, size.Z * 1.02)
         band.CFrame = CFrame.new(offsetX, 0, 0)
         band.Material = Enum.Material.Wood
         band.Color = Color3.fromRGB(92, 58, 32)
@@ -199,7 +207,7 @@ local function createLogInstance()
 end
 
 local function createPlankInstance()
-    local size = Vector3.new(1.45, 0.2, 0.52)
+    local size = declaredSize("Plank")
     local plank = Instance.new("Model")
 
     local body = Instance.new("Part")
@@ -222,10 +230,10 @@ local function createPlankInstance()
     end
 
     -- Two grain lines down the face, so it reads as a board and not a slab
-    for index, offsetZ in ipairs({ -0.13, 0.12 }) do
+    for index, offsetZ in ipairs({ -size.Z * 0.25, size.Z * 0.23 }) do
         local grain = Instance.new("Part")
         grain.Name = "PlankGrain" .. index
-        grain.Size = Vector3.new(size.X * 0.9, 0.02, 0.05)
+        grain.Size = Vector3.new(size.X * 0.9, 0.02, size.Z * 0.1)
         grain.CFrame = CFrame.new(0, size.Y / 2 - 0.005, offsetZ)
         grain.Material = Enum.Material.Wood
         grain.Color = Color3.fromRGB(163, 118, 68)
@@ -238,7 +246,7 @@ local function createPlankInstance()
 end
 
 local function createBeamInstance()
-    local size = Vector3.new(1.3, 0.32, 0.32)
+    local size = declaredSize("Beam")
     local beam = Instance.new("Model")
 
     local body = Instance.new("Part")
@@ -258,7 +266,7 @@ local function createBeamInstance()
     }) do
         local chamfer = Instance.new("Part")
         chamfer.Name = "BeamEdge" .. index
-        chamfer.Size = Vector3.new(size.X * 1.002, 0.07, 0.07)
+        chamfer.Size = Vector3.new(size.X * 1.002, size.Y * 0.22, size.Z * 0.22)
         chamfer.CFrame = CFrame.new(offset) * CFrame.Angles(math.rad(45), 0, 0)
         chamfer.Material = Enum.Material.Wood
         chamfer.Color = Color3.fromRGB(172, 122, 66)
