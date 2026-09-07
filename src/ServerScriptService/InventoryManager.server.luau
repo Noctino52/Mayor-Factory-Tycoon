@@ -1255,6 +1255,12 @@ local function createProcessorTemplate(itemName)
         return nil
     end
 
+    -- Say so. A machine quietly wearing the stand-in body instead of its own
+    -- model looks like a bug in the model, and the cause is usually that the
+    -- model never reached the place: Rojo does not reload default.project.json
+    -- while it is serving, so a newly registered asset needs a restart.
+    warn("[Templates] " .. tostring(itemName) .. " has no model in ItemTemplates; using the generic processor body")
+
     local style = PROCESSOR_TEMPLATE_STYLES[itemName] or {
         baseColor = Color3.fromRGB(64, 70, 76),
         bodyColor = Color3.fromRGB(94, 100, 108),
