@@ -870,11 +870,11 @@ local function sellItem(activeItem, cellInfo, sellCellX, sellCellZ, fadePosition
     return sold == true
 end
 
--- Where an item should stop when the next cell is a machine: at the mouth,
--- with its leading face on the machine's boundary. Driving it to the middle
--- of the cell like any other hop buries it inside the machine's own geometry
--- for the whole approach, which is what makes it look like it clips through.
-local function machineIntakePosition(activeItem, startPosition, targetPosition)
+-- Where an item should stop when the next cell takes it in - a machine or a
+-- trader's stall: at the mouth, with its leading face on the boundary.
+-- Driving it to the middle of the cell like any other hop buries it inside
+-- the model for the whole approach, which is what makes it clip through.
+local function intakePosition(activeItem, startPosition, targetPosition)
     local approach = targetPosition - startPosition
     local direction = Vector3.new(approach.X, 0, approach.Z)
     if direction.Magnitude < 0.001 then
@@ -948,7 +948,12 @@ local function handleArrival(activeItem)
     elseif cellInfo.type == "machine" then
         feedMachine(cellInfo, activeItem)
     elseif cellInfo.type == "sell_zone" then
-        sellItem(activeItem, cellInfo)
+        -- Fades where it came to rest, at the counter, rather than being
+        -- moved to the middle of the zone first
+        local restingAt = activeItem.model
+            and activeItem.model.Parent
+            and getItemCFrame(activeItem.model).Position
+        sellItem(activeItem, cellInfo, activeItem.cellX, activeItem.cellZ, restingAt or nil)
     elseif not isTransportCell(cellInfo) then
         destroyProductionItem(activeItem, true)
     else
@@ -1028,10 +1033,6 @@ local function tryStartNextSegment(activeItem)
     end
 
     activeItem.salePosition = nil
-    if nextCell and nextCell.type == "sell_zone" then
-        sellItem(activeItem, nextCell, nextCellX, nextCellZ, startPosition)
-        return
-    end
 
     if nextCell and nextCell.type == "splitter" then
         local routedCellX, routedCellZ = selectSplitterOutputCell(activeItem.player, nextCell, {
@@ -1085,8 +1086,8 @@ local function tryStartNextSegment(activeItem)
         return
     end
 
-    if nextCell and nextCell.type == "machine" then
-        targetPosition = machineIntakePosition(activeItem, startPosition, targetPosition)
+    if nextCell and (nextCell.type == "machine" or nextCell.type == "sell_zone") then
+        targetPosition = intakePosition(activeItem, startPosition, targetPosition)
     end
 
     if mergerToAdvance and mergerInputLane then

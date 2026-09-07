@@ -16,6 +16,8 @@
 	MachineSystem; if this module does nothing, the machine still works.
 ]]
 
+local CharacterRig = require(game.ServerScriptService.CharacterRig)
+
 local PlotWorkers = {}
 
 -- The same models the conveyors carry. What the worker hauls to the pile has
@@ -32,66 +34,18 @@ do
     end
 end
 
--- Classic R6 part sizes, in studs, before the per-machine scale is applied
-local R6 = {
-	torso = Vector3.new(2, 2, 1),
-	head = Vector3.new(2, 1, 1),
-	limb = Vector3.new(1, 2, 1),
-}
+local R6 = CharacterRig.R6
 
-local SKIN = Color3.fromRGB(245, 205, 48)
 local SHIRT = Color3.fromRGB(151, 44, 36)
-local TROUSERS = Color3.fromRGB(70, 60, 48)
 local AXE_HANDLE = Color3.fromRGB(120, 78, 44)
 local AXE_HEAD = Color3.fromRGB(160, 165, 170)
 
-local function newPart(name, size, color, parent)
-	local part = Instance.new("Part")
-	part.Name = name
-	part.Size = size
-	part.Color = color
-	part.Material = Enum.Material.SmoothPlastic
-	part.Anchored = true
-	part.CanCollide = false
-	part.CanQuery = false
-	part.CanTouch = false
-	part.TopSurface = Enum.SurfaceType.Smooth
-	part.BottomSurface = Enum.SurfaceType.Smooth
-	part.Parent = parent
-	return part
-end
+local newPart = CharacterRig.NewPart
 
--- Local offsets of each body part relative to the worker's feet
 local function buildRig(scale)
-	local rig = Instance.new("Model")
-	rig.Name = "Lumberjack"
+	local rig = CharacterRig.Build("Lumberjack", scale)
 
-	local torso = R6.torso * scale
-	local head = R6.head * scale
 	local limb = R6.limb * scale
-
-	local legY = limb.Y / 2
-	local torsoY = limb.Y + torso.Y / 2
-	local headY = limb.Y + torso.Y + head.Y / 2
-
-	newPart("LeftLeg", limb, TROUSERS, rig):SetAttribute("Offset", Vector3.new(-limb.X / 2, legY, 0))
-	newPart("RightLeg", limb, TROUSERS, rig):SetAttribute("Offset", Vector3.new(limb.X / 2, legY, 0))
-	newPart("Torso", torso, SHIRT, rig):SetAttribute("Offset", Vector3.new(0, torsoY, 0))
-	newPart("LeftArm", limb, SHIRT, rig):SetAttribute("Offset", Vector3.new(-(torso.X + limb.X) / 2, torsoY, 0))
-
-	local headPart = newPart("Head", head, SKIN, rig)
-	headPart:SetAttribute("Offset", Vector3.new(0, headY, 0))
-	local headMesh = Instance.new("SpecialMesh")
-	headMesh.MeshType = Enum.MeshType.Head
-	headMesh.Scale = Vector3.new(1.25, 1.25, 1.25)
-	headMesh.Parent = headPart
-
-	-- The stock Roblox face, so he actually looks at what he is chopping
-	local face = Instance.new("Decal")
-	face.Name = "Face"
-	face.Texture = "rbxasset://textures/face.png"
-	face.Face = Enum.NormalId.Front
-	face.Parent = headPart
 
 	-- The chopping arm and axe are positioned explicitly each frame (see
 	-- poseArm) rather than carried as fixed offsets, so the blade can be made
@@ -116,7 +70,6 @@ local function buildRig(scale)
 	bit.CanTouch = false
 	bit.Parent = rig
 
-	rig.PrimaryPart = rig:FindFirstChild("Torso")
 	return rig
 end
 
@@ -166,39 +119,6 @@ local function machineBase(instance)
 	return floor * (pivot - pivot.Position)
 end
 
--- The frame the worker stands in: at his feet, looking where he is going.
---
--- Built with CFrame.lookAt so the frame follows Roblox's own convention,
--- where LookVector is -Z. That is the same convention a Part's Front face
--- uses, so the face decal lands on the side he actually looks at without any
--- guesswork about which way round the rig is.
-local function rigFrame(baseCFrame, standAt, lookDirection)
-	local flat = Vector3.new(lookDirection.X, 0, lookDirection.Z)
-	if flat.Magnitude < 1e-3 then
-		flat = Vector3.zAxis
-	end
-	return baseCFrame * CFrame.lookAt(standAt, standAt + flat.Unit)
-end
-
-local function poseBody(rig, frame, stride)
-	for _, part in ipairs(rig:GetChildren()) do
-		if part:IsA("BasePart") then
-			local offset = part:GetAttribute("Offset")
-			if offset then
-				local lean = 0
-				if part.Name == "LeftLeg" then
-					lean = stride
-				elseif part.Name == "RightLeg" then
-					lean = -stride
-				elseif part.Name == "LeftArm" then
-					lean = -stride
-				end
-				part.CFrame = frame * CFrame.new(offset) * CFrame.Angles(lean, 0, 0)
-			end
-		end
-	end
-end
-
 -- Places the arm and axe by aiming them at a point, so the blade can be put
 -- exactly on the trunk rather than at the end of a guessed rotation.
 local function poseArm(rig, frame, scale, targetInFrame)
@@ -211,11 +131,7 @@ local function poseArm(rig, frame, scale, targetInFrame)
 	end
 
 	local limbLength = R6.limb.Y * scale
-	local shoulder = Vector3.new(
-		(R6.torso.X + R6.limb.X) / 2 * scale,
-		(R6.limb.Y + R6.torso.Y / 2) * scale + limbLength / 2,
-		0
-	)
+	local shoulder = CharacterRig.Shoulder(scale)
 
 	local reach = targetInFrame - shoulder
 	local distance = reach.Magnitude
@@ -415,9 +331,9 @@ function PlotWorkers.Update(machine, machineData, progress)
 		machine.workerFelled[treeIndex] = machine.workerCycle or 0
 	end
 
-	local frame = rigFrame(base, position, lookAt)
+	local frame = CharacterRig.Frame(base, position, lookAt)
 	local scale = config.scale or 0.5
-	poseBody(machine.worker, frame, stride)
+	CharacterRig.PoseBody(machine.worker, frame, { stride = stride, scale = scale })
 
 	-- Where the blade should be. While chopping that is the trunk itself, at
 	-- the height a lumberjack actually cuts; otherwise the axe simply hangs.

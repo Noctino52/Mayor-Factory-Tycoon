@@ -4,6 +4,7 @@ local Players = game:GetService("Players")
 local ConveyorSystem = require(game.ServerScriptService.ConveyorSystem)
 local Definitions = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Definitions"))
 local PlayerProgress = require(game.ServerScriptService.PlayerProgress)
+local PlotNPCs = require(game.ServerScriptService.PlotNPCs)
 local TutorialSystem = require(game.ServerScriptService.TutorialSystem)
 
 local SellSystem = {}
@@ -104,6 +105,7 @@ function SellSystem.CreateSellZone(player, cellX, cellZ, npcName, instance)
 
     if instance and instance.Parent then
         instance:SetAttribute("NPCName", npcName)
+        PlotNPCs.Attach(instance, npcName)
     end
 
     return true
@@ -138,6 +140,8 @@ function SellSystem.UnregisterPlacedItem(player, item)
     if not item then
         return
     end
+
+    PlotNPCs.Detach(item)
 
     local cellX = item:GetAttribute("CellX")
     local cellZ = item:GetAttribute("CellZ")
@@ -212,6 +216,7 @@ function SellSystem.SellItem(player, itemName, cellX, cellZ, productionItem)
 
     local reputationResult = PlayerProgress.AddReputation(player, zone.npcName, reputationReward)
     TutorialSystem.ObserveSale(player, itemName, zone.npcName, 1)
+    PlotNPCs.Celebrate(zoneInstance)
 
     saleFeedbackRemote:FireClient(player, {
         itemName = itemName,
