@@ -561,6 +561,8 @@ local IMPORTED_MATERIAL_STYLES = {
     DarkPanel = { color = Color3.fromRGB(18, 18, 21), material = Enum.Material.SmoothPlastic },
     RedAccent = { color = Color3.fromRGB(168, 26, 26), material = Enum.Material.SmoothPlastic },
     Screen = { color = Color3.fromRGB(28, 68, 105), material = Enum.Material.Neon },
+    SteelBlue = { color = Color3.fromRGB(38, 76, 112), material = Enum.Material.Metal },
+    Graphite = { color = Color3.fromRGB(41, 43, 46), material = Enum.Material.Metal },
 }
 
 local function applyImportedMaterialStyles(template)

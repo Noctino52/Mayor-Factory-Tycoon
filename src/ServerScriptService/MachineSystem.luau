@@ -303,6 +303,83 @@ local function workpieceTravel(config, progress)
     return 0
 end
 
+-- Dust thrown off the cut, in the colour of whatever is being cut: sawdust
+-- off a plank, grit off a block. Lives on the head so it follows the blade.
+local DUST_NAME = "CutDust"
+
+local function ensureCutDust(machine, machineData)
+    if machine.cutDust and machine.cutDust.Parent then
+        return machine.cutDust
+    end
+
+    local instance = machine.instance
+    if not instance or not instance.Parent then
+        return nil
+    end
+
+    -- The blade if the model names one, otherwise anything on the head
+    local anchor = nil
+    for _, descendant in ipairs(instance:GetDescendants()) do
+        if descendant:IsA("BasePart") and string.find(descendant.Name, "Head_", 1, true) then
+            anchor = anchor or descendant
+            if string.find(descendant.Name, "Blade", 1, true) then
+                anchor = descendant
+                break
+            end
+        end
+    end
+
+    if not anchor then
+        return nil
+    end
+
+    local existing = anchor:FindFirstChild(DUST_NAME)
+    if existing then
+        machine.cutDust = existing
+        return existing
+    end
+
+    local colour = Color3.fromRGB(196, 150, 96)
+    if productionItemModule and productionItemModule.GetColor and machineData.inputItem then
+        local read, itemColour = pcall(productionItemModule.GetColor, machineData.inputItem)
+        if read and itemColour then
+            colour = itemColour
+        end
+    end
+
+    local dust = Instance.new("ParticleEmitter")
+    dust.Name = DUST_NAME
+    dust.Color = ColorSequence.new(colour:Lerp(Color3.new(1, 1, 1), 0.35), colour)
+    dust.Size = NumberSequence.new({
+        NumberSequenceKeypoint.new(0, 0.14),
+        NumberSequenceKeypoint.new(1, 0.02),
+    })
+    dust.Transparency = NumberSequence.new({
+        NumberSequenceKeypoint.new(0, 0.1),
+        NumberSequenceKeypoint.new(0.7, 0.4),
+        NumberSequenceKeypoint.new(1, 1),
+    })
+    dust.Lifetime = NumberRange.new(0.25, 0.55)
+    dust.Rate = 70
+    dust.Speed = NumberRange.new(2, 5)
+    dust.SpreadAngle = Vector2.new(38, 38)
+    dust.Acceleration = Vector3.new(0, -22, 0)
+    dust.Rotation = NumberRange.new(0, 360)
+    dust.RotSpeed = NumberRange.new(-160, 160)
+    dust.LightEmission = 0
+    dust.Enabled = false
+    dust.Parent = anchor
+
+    machine.cutDust = dust
+    return dust
+end
+
+local function setCutDust(machine, enabled)
+    if machine.cutDust and machine.cutDust.Parent then
+        machine.cutDust.Enabled = enabled
+    end
+end
+
 local function restoreHeadParts(machine)
     if not machine.headOrigins then
         return
@@ -328,6 +405,7 @@ local function clearWorkpiece(machine)
     machine.workpiecePivot = nil
     machine.workpieceScale = nil
     machine.workpieceExit = nil
+    setCutDust(machine, false)
     restoreHeadParts(machine)
 end
 
@@ -461,7 +539,8 @@ local function sweepHead(machine, config, progress)
     end
 
     local travel = config.headTravel or 0
-    if travel <= 0 then
+    local lift = config.headLift or 0
+    if travel <= 0 and lift <= 0 then
         return
     end
 
@@ -480,7 +559,13 @@ local function sweepHead(machine, config, progress)
         1
     )
     local scale = machine.workpieceScale or 1
-    local offset = instance:GetPivot().RightVector * (travel * scale * (cut - 0.5))
+    local pivot = instance:GetPivot()
+
+    -- A saw rides across the piece; a press comes down on it and lifts off
+    -- again. Both are the same idea: the head is somewhere else at the start
+    -- and end of the cut than it is in the middle of it.
+    local offset = pivot.RightVector * (travel * scale * (cut - 0.5))
+        - pivot.UpVector * (lift * scale * math.sin(cut * math.pi))
     for part, origin in pairs(machine.headOrigins) do
         if part.Parent then
             part.CFrame = origin + offset
@@ -523,6 +608,11 @@ local function updateWorkpiece(machine, machineData, now)
     setWorkpieceItem(machine, progress < swapAt and machineData.inputItem or machineData.outputItem)
     placeWorkpiece(machine, workpieceTravel(config, progress) * (machine.workpieceScale or 1))
     sweepHead(machine, config, progress)
+
+    if config.dust then
+        ensureCutDust(machine, machineData)
+        setCutDust(machine, progress > WORKPIECE_ENTER_UNTIL and progress < WORKPIECE_LEAVE_FROM)
+    end
 end
 
 local function updateProcessor(player, machine, machineData, now)

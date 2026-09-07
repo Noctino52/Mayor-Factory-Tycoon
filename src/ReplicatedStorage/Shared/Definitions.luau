@@ -364,7 +364,7 @@ local MACHINES = {
 		-- right on the bunks. travel is how far up the bed the piece is fed
 		-- in and pushed out again, headTravel the sweep of the saw head, and
 		-- swapAt how far through the cut the log becomes a plank.
-		workpiece = { bedHeight = 0.93, travel = 2.6, headTravel = 2.2, swapAt = 0.62 },
+		workpiece = { bedHeight = 0.93, travel = 2.6, headTravel = 2.2, swapAt = 0.62, dust = true },
 	},
 	BeamCutter = {
 		name = "BeamCutter",
@@ -376,7 +376,7 @@ local MACHINES = {
 		powerRequired = 12,
 		-- The plank rolls in on the roller table, the bridge rips it down the
 		-- table slot, and the beam comes off the outfeed on the far side.
-		workpiece = { bedHeight = 1.16, travel = 2.7, headTravel = 3.0, swapAt = 0.55 },
+		workpiece = { bedHeight = 1.16, travel = 2.7, headTravel = 3.0, swapAt = 0.55, dust = true },
 	},
 	CrateAssembler = {
 		name = "CrateAssembler",
