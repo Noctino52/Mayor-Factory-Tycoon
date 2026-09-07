@@ -392,6 +392,7 @@ local MACHINES = {
 		-- of across: headLift is how far it drops onto the work. The crate
 		-- appears late, once the platen is back up clear of it.
 		workpiece = { bedHeight = 1.00, travel = 2.5, headLift = 1.0, swapAt = 0.77 },
+	},
 	StoneCutter = {
 		name = "StoneCutter",
 		type = "processor",
