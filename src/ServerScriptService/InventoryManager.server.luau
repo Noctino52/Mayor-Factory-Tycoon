@@ -587,6 +587,14 @@ local function applyImportedMaterialStyles(template)
     end
 end
 
+-- Studio's importer drops the materials off an FBX, so every imported model
+-- arrives flat grey. Restoring them up front rather than on first placement
+-- matters because ItemTemplates replicates: the placement preview a player
+-- sees before anything has ever been built comes straight out of this folder.
+for _, template in ipairs(templatesFolder:GetChildren()) do
+    applyImportedMaterialStyles(template)
+end
+
 local function getTemplateAlias(itemName)
     if itemName == "MineEntrance" then
         return templatesFolder:FindFirstChild("MineEntrace")
