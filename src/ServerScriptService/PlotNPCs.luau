@@ -33,6 +33,10 @@ local CHEER_TIME = 1.4
 	One entry per trader. `stand` is where they stand on the zone, in studs
 	from its centre, and `work` is the point their tool moves over - both are
 	in the zone's own frame, so they follow it when it is rotated.
+
+	The stall models put the bench at their own +Y, which the FBX export
+	turns into -Z here: the trader stands behind the bench, looking out at
+	the customer side, which is where deliveries arrive from.
 ]]
 local NPC_SPECS = {
 	Mira = {
@@ -42,8 +46,8 @@ local NPC_SPECS = {
 			shirt = Color3.fromRGB(66, 132, 84),
 			trousers = Color3.fromRGB(92, 66, 44),
 		},
-		stand = Vector3.new(-1.1, 0, 1.5),
-		work = Vector3.new(-1.1, 0, 0.2),
+		stand = Vector3.new(-1.1, 0, -1.5),
+		work = Vector3.new(-1.1, 0, -0.2),
 		-- A carpenter's handsaw: a broad blade with a short grip
 		tool = {
 			{ name = "ToolBlade", size = Vector3.new(0.10, 0.34, 1.05), color = STEEL, material = Enum.Material.Metal },
@@ -61,8 +65,8 @@ local NPC_SPECS = {
 			hat = Color3.fromRGB(226, 176, 44),
 			hatBrim = true,
 		},
-		stand = Vector3.new(1.2, 0, 1.5),
-		work = Vector3.new(1.2, 0, 0.3),
+		stand = Vector3.new(1.2, 0, -1.5),
+		work = Vector3.new(1.2, 0, -0.2),
 		-- A mason's trowel: a flat steel blade on a stubby handle
 		tool = {
 			{ name = "ToolGrip", size = Vector3.new(0.14, 0.14, 0.34), color = WOOD },
@@ -78,8 +82,8 @@ local NPC_SPECS = {
 			shirt = Color3.fromRGB(58, 62, 70),
 			trousers = Color3.fromRGB(48, 40, 36),
 		},
-		stand = Vector3.new(0, 0, 1.6),
-		work = Vector3.new(0, 0, 0.25),
+		stand = Vector3.new(0.1, 0, -1.5),
+		work = Vector3.new(0.1, 0, -0.2),
 		-- A smith's hammer: a heavy head across the end of the haft
 		tool = {
 			{ name = "ToolGrip", size = Vector3.new(0.13, 0.13, 0.66), color = WOOD },

@@ -207,8 +207,23 @@ Posizionata su bordo del plot.
 
 Contiene **sell zone dedicate** agli NPC.
 
+Ogni sell zone è il **posto di lavoro** del suo NPC, non una piastra: la
+piazzola occupa un blocco di griglia e porta l'attrezzatura del mestiere.
+
+| NPC | Posto di lavoro |
+|-----|-----------------|
+| 🪵 Mira | Tettoia da falegname: banco con tavole in morsa, cavalletti, cataste di assi, tronchi da lavorare |
+| 🏗️ Bront | Cantiere da muratore: muro in mattoni in costruzione, banco con malta, pile di mattoni e blocchi, carriola |
+| ⚒️ Elrik | Fucina da fabbro: forgia con brace e cappa, incudine sul ceppo, tino di tempra, rastrelliera e barre finite |
+
+L'NPC **è fisicamente presente** dietro il banco e lavora in loop con il
+proprio attrezzo (sega, cazzuola, martello). Sono figure R6 costruite a
+runtime dalle stesse primitive del boscaiolo della Tree Farm, quindi
+condividono taglia e stile con il resto del plot.
+
 Quando Production Item entra:
-- ✅ NPC accetta → Venduto (Money + Rep)
+- ➡️ L'item **percorre il nastro fino alla bocca della piazzola** e si dissolve lì, non una cella prima
+- ✅ NPC accetta → Venduto (Money + Rep) → **l'NPC esulta** (salti e braccia in alto, ~1.4s)
 - ❌ NPC non accetta → Distrutto
 - ❌ Item da altro player → Ignorato/Distrutto
 

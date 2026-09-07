@@ -60,12 +60,15 @@ Il gioco usa due progressioni principali:
 
 ## 👥 NPC Principali
 
-| NPC | Specialità | Linea |
-|-----|-----------|-------|
-| **🪵 Mira** | Falegname | Legno |
-| **🏗️ Bront** | Muratore | Pietra |
-| **⚒️ Elrik** | Fabbro | Ferro, Componenti, Generatori |
-| **🏛️ Sindaco** | Gestione Città | Town Prestige & Obiettivi Globali |
+| NPC | Specialità | Linea | Dove lo trovi |
+|-----|-----------|-------|---------------|
+| **🪵 Mira** | Falegname | Legno | Alla sua tettoia da falegname, dietro il banco |
+| **🏗️ Bront** | Muratore | Pietra | Nel suo cantiere, davanti al muro in costruzione |
+| **⚒️ Elrik** | Fabbro | Ferro, Componenti, Generatori | Alla fucina, all'incudine |
+| **🏛️ Sindaco** | Gestione Città | Town Prestige & Obiettivi Globali | Al municipio |
+
+I tre artigiani sono presenti sul plot e lavorano di continuo al proprio
+banco. Quando gli arriva della merce da vendere, esultano.
 
 ---
 

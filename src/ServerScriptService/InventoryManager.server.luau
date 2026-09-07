@@ -93,6 +93,15 @@ local ITEM_VISUAL_ADJUSTMENTS = {
     Conveyor = {
         maxHeight = 1.2,
     },
+    MiraSellZone = {
+        alignToFootprint = true,
+    },
+    BrontSellZone = {
+        alignToFootprint = true,
+    },
+    ElrikSellZone = {
+        alignToFootprint = true,
+    },
     CurvedConveyor = {
         alignToFootprint = true,
         footprintPadding = 0.82,
@@ -563,6 +572,15 @@ local IMPORTED_MATERIAL_STYLES = {
     Screen = { color = Color3.fromRGB(28, 68, 105), material = Enum.Material.Neon },
     SteelBlue = { color = Color3.fromRGB(38, 76, 112), material = Enum.Material.Metal },
     Graphite = { color = Color3.fromRGB(41, 43, 46), material = Enum.Material.Metal },
+    Deck = { color = Color3.fromRGB(96, 90, 82), material = Enum.Material.Slate },
+    Timber = { color = Color3.fromRGB(196, 140, 84), material = Enum.Material.Wood },
+    Stone = { color = Color3.fromRGB(150, 152, 156), material = Enum.Material.Slate },
+    StoneDark = { color = Color3.fromRGB(72, 74, 78), material = Enum.Material.Slate },
+    Brick = { color = Color3.fromRGB(168, 84, 58), material = Enum.Material.Brick },
+    Mortar = { color = Color3.fromRGB(196, 193, 182), material = Enum.Material.Concrete },
+    Iron = { color = Color3.fromRGB(78, 82, 88), material = Enum.Material.Metal },
+    Coal = { color = Color3.fromRGB(22, 22, 26), material = Enum.Material.Slate },
+    Ember = { color = Color3.fromRGB(255, 120, 30), material = Enum.Material.Neon },
 }
 
 local function applyImportedMaterialStyles(template)
@@ -1440,6 +1458,48 @@ local SELL_ZONE_COLORS = {
     Elrik = Color3.fromRGB(118, 126, 134),
 }
 
+--[[
+	Hangs the trader's name over a sell zone. Split out of the stand-in
+	template because an imported stall needs it just as much: the model says
+	what trade it is, the plate says whose it is.
+]]
+local function addSellZoneLabel(zone, npcName)
+    local anchor = zone.PrimaryPart or zone:FindFirstChildWhichIsA("BasePart", true)
+    if not anchor or anchor:FindFirstChild("SellZoneLabel") then
+        return
+    end
+
+    local _, boundsSize = zone:GetBoundingBox()
+
+    local billboard = Instance.new("BillboardGui")
+    billboard.Name = "SellZoneLabel"
+    billboard.Size = UDim2.fromOffset(110, 28)
+    billboard.StudsOffsetWorldSpace = Vector3.new(0, boundsSize.Y + 0.8, 0)
+    billboard.AlwaysOnTop = true
+    billboard.Parent = anchor
+
+    local label = Instance.new("TextLabel")
+    label.Name = "Label"
+    label.Size = UDim2.fromScale(1, 1)
+    label.BackgroundTransparency = 0.25
+    label.BackgroundColor3 = Color3.fromRGB(18, 20, 22)
+    label.BorderSizePixel = 0
+    label.Text = npcName .. " Sell"
+    label.TextColor3 = Color3.fromRGB(245, 248, 250)
+    label.TextScaled = true
+    label.Font = Enum.Font.GothamBold
+    label.Parent = billboard
+end
+
+-- An imported stall arrives as bare meshes: it still has to say whose zone
+-- it is and which NPC buys here.
+local function prepareSellZoneTemplate(template, itemDef)
+    if template:GetAttribute("NPCName") == nil then
+        template:SetAttribute("NPCName", itemDef.npcName)
+    end
+    addSellZoneLabel(template, itemDef.npcName)
+end
+
 local function createSellZoneTemplate(itemName)
     local existing = templatesFolder:FindFirstChild(itemName)
     if existing then
@@ -1480,26 +1540,8 @@ local function createSellZoneTemplate(itemName)
     marker.Transparency = 0.55
     marker.Parent = zone
 
-    local billboard = Instance.new("BillboardGui")
-    billboard.Name = "SellZoneLabel"
-    billboard.Size = UDim2.fromOffset(110, 28)
-    billboard.StudsOffsetWorldSpace = Vector3.new(0, 2.2, 0)
-    billboard.AlwaysOnTop = true
-    billboard.Parent = base
-
-    local label = Instance.new("TextLabel")
-    label.Name = "Label"
-    label.Size = UDim2.fromScale(1, 1)
-    label.BackgroundTransparency = 0.25
-    label.BackgroundColor3 = Color3.fromRGB(18, 20, 22)
-    label.BorderSizePixel = 0
-    label.Text = npcName .. " Sell"
-    label.TextColor3 = Color3.fromRGB(245, 248, 250)
-    label.TextScaled = true
-    label.Font = Enum.Font.GothamBold
-    label.Parent = billboard
-
     zone.PrimaryPart = base
+    addSellZoneLabel(zone, npcName)
     zone.Parent = templatesFolder
 
     return zone
@@ -1517,6 +1559,12 @@ local function ensureItemTemplate(itemName)
     local template = templatesFolder:FindFirstChild(itemName)
     if template then
         applyImportedMaterialStyles(template)
+
+        local itemDef = Definitions.GetItem(itemName)
+        if itemDef and itemDef.type == "sell_zone" and itemDef.npcName then
+            prepareSellZoneTemplate(template, itemDef)
+        end
+
         return template
     end
 
