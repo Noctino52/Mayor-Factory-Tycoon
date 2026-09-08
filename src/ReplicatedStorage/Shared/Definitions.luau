@@ -432,9 +432,9 @@ local NPCS = {
 	Mira = {
 		name = "Mira",
 		-- Classic clothing drawn by modeling/clothing.py: Plaid shirt under hi-vis braces, yellow work trousers.
-		-- Upload the two PNGs and put their asset ids here; 0 leaves
-		-- the trader in the stand-in outfit.
-		appearance = { shirt = 0, pants = 0 },
+		-- Uploaded as plain images through Studio's asset manager, which
+		-- costs nothing; 0 leaves the trader in the stand-in outfit.
+		appearance = { shirt = 96321521984643, pants = 121109176183205 },
 		title = "Falegname",
 		icon = "👨",
 		specialization = "wood",
@@ -451,9 +451,9 @@ local NPCS = {
 	Bront = {
 		name = "Bront",
 		-- Classic clothing drawn by modeling/clothing.py: Hi-vis vest over a dark shirt, denim jeans.
-		-- Upload the two PNGs and put their asset ids here; 0 leaves
-		-- the trader in the stand-in outfit.
-		appearance = { shirt = 0, pants = 0 },
+		-- Uploaded as plain images through Studio's asset manager, which
+		-- costs nothing; 0 leaves the trader in the stand-in outfit.
+		appearance = { shirt = 134266104462953, pants = 83392154600709 },
 		title = "Muratore",
 		icon = "👷",
 		specialization = "stone",
@@ -465,9 +465,9 @@ local NPCS = {
 	Elrik = {
 		name = "Elrik",
 		-- Classic clothing drawn by modeling/clothing.py: Leather apron over rolled linen sleeves, dark trousers.
-		-- Upload the two PNGs and put their asset ids here; 0 leaves
-		-- the trader in the stand-in outfit.
-		appearance = { shirt = 0, pants = 0 },
+		-- Uploaded as plain images through Studio's asset manager, which
+		-- costs nothing; 0 leaves the trader in the stand-in outfit.
+		appearance = { shirt = 137796010315368, pants = 87793845987385 },
 		title = "Fabbro",
 		icon = "⚒️",
 		specialization = "iron",
