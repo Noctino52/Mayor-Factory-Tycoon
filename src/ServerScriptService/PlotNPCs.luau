@@ -64,6 +64,24 @@ local ACCESSORY_MESHES = {
 	cap_soft_Leather = 103166760847000,
 }
 
+--[[
+	Where each mesh sits, in studs from the centre of the head, at R6 scale 1.
+
+	Roblox recentres a mesh on its own bounding box when it is uploaded, so
+	whatever offset the model had is gone by the time it gets here and has to
+	be put back. These are measured off the Blender build, not judged by eye.
+]]
+local ACCESSORY_OFFSETS = {
+	hardhat_HiVis = Vector3.new(0, 0.725, 0.187),
+	hardhat_HiVisDeep = Vector3.new(0, 1.220, 0),
+	hair_long_HairDark = Vector3.new(0, -0.507, -0.315),
+	hair_long_Leather = Vector3.new(0, -1.020, -1.000),
+	beard_full_HairBlack = Vector3.new(0, -0.485, 0.339),
+	beard_smith_HairFair = Vector3.new(0, -0.615, 0.359),
+	cap_soft_ClothDark = Vector3.new(0, 0.625, -0.060),
+	cap_soft_Leather = Vector3.new(0, 0.890, -0.060),
+}
+
 local ACCESSORY_COLOURS = {
 	hardhat_HiVis = HI_VIS,
 	hardhat_HiVisDeep = HI_VIS_DEEP,
@@ -92,7 +110,7 @@ local function worn(accessory)
 				meshId = id,
 				size = Vector3.new(1, 1, 1),
 				color = ACCESSORY_COLOURS[key],
-				offset = Vector3.new(0, HEAD_Y, 0),
+				offset = Vector3.new(0, HEAD_Y, 0) + ACCESSORY_OFFSETS[key],
 			})
 		end
 	end
