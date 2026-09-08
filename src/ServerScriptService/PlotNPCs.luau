@@ -120,15 +120,19 @@ local NPC_SPECS = {
 			arms = Color3.fromRGB(138, 62, 52),
 			trousers = Color3.fromRGB(222, 176, 60),
 		},
-		dress = dressed(
+		accessories = dressed(
 			{
 				{ name = "HairCrown", size = Vector3.new(2.40, 1.30, 2.32), color = HAIR_DARK, shape = Enum.PartType.Ball, offset = Vector3.new(0, HEAD_Y + 0.36, 0.06) },
 				{ name = "HairBack", size = Vector3.new(2.12, 1.70, 0.58), color = HAIR_DARK, offset = Vector3.new(0, HEAD_Y - 0.30, 0.80) },
 				{ name = "HairSideL", size = Vector3.new(0.42, 1.74, 1.34), color = HAIR_DARK, offset = Vector3.new(-1.08, HEAD_Y - 0.52, 0.10) },
 				{ name = "HairSideR", size = Vector3.new(0.42, 1.74, 1.34), color = HAIR_DARK, offset = Vector3.new(1.08, HEAD_Y - 0.52, 0.10) },
 				{ name = "Ponytail", size = Vector3.new(0.68, 1.60, 0.68), color = HAIR_DARK, offset = Vector3.new(0, HEAD_Y - 1.30, 1.02), tilt = Vector3.new(0.22, 0, 0) },
+				-- A fringe under the brim, or she reads as bald from the front
+				{ name = "Fringe", size = Vector3.new(1.90, 0.34, 0.30), color = HAIR_DARK, offset = Vector3.new(0, HEAD_Y + 0.30, -0.60) },
 			},
-			hardHat(HI_VIS, HI_VIS_DEEP),
+			hardHat(HI_VIS, HI_VIS_DEEP)
+		),
+		dress = dressed(
 			{
 				-- Braces over the shoulders, buckled at the chest
 				{ name = "BraceL", size = Vector3.new(0.42, 1.96, 0.16), color = HI_VIS, offset = Vector3.new(-0.56, TORSO_Y + 0.04, -0.57), tilt = Vector3.new(0, 0, 0.06) },
@@ -173,9 +177,11 @@ local NPC_SPECS = {
 			arms = Color3.fromRGB(46, 54, 72),
 			trousers = Color3.fromRGB(52, 72, 116),
 		},
-		dress = dressed(
+		accessories = dressed(
 			hardHat(HI_VIS, HI_VIS_DEEP),
-			beard(Color3.fromRGB(32, 30, 32), true),
+			beard(Color3.fromRGB(32, 30, 32), true)
+		),
+		dress = dressed(
 			{
 				-- The vest wraps the torso rather than hanging off the front
 				{ name = "VestFront", size = Vector3.new(1.92, 1.72, 0.18), color = HI_VIS, offset = Vector3.new(0, TORSO_Y - 0.04, -0.56) },
@@ -218,12 +224,14 @@ local NPC_SPECS = {
 			arms = Color3.fromRGB(238, 236, 228),
 			trousers = Color3.fromRGB(58, 58, 60),
 		},
-		dress = dressed(
+		accessories = dressed(
 			{
 				{ name = "Cap", size = Vector3.new(2.24, 1.10, 2.16), color = Color3.fromRGB(78, 82, 84), shape = Enum.PartType.Ball, offset = Vector3.new(0, HEAD_Y + 0.62, 0.06) },
 				{ name = "CapBand", size = Vector3.new(2.20, 0.26, 2.12), color = Color3.fromRGB(60, 64, 66), offset = Vector3.new(0, HEAD_Y + 0.44, 0.04) },
 			},
-			beard(Color3.fromRGB(214, 178, 96), true),
+			beard(Color3.fromRGB(214, 178, 96), true)
+		),
+		dress = dressed(
 			{
 				-- The apron is the whole outfit: bib, body, and a skirt that
 				-- carries on down over the legs
@@ -292,10 +300,15 @@ local function buildNPC(npcName)
 
 	local rig = NPCAppearance.Build(npcName, spec.scale)
 	if not rig then
+		-- The stand-in has to wear its clothes, because it has no textures
 		rig = CharacterRig.Build(npcName, spec.scale, spec.palette)
 		CharacterRig.Dress(rig, spec.scale, spec.dress)
 		newPart("RightArm", R6.limb * spec.scale, spec.palette.arms or spec.palette.shirt, rig)
 	end
+
+	-- Hats, hair and beards are geometry either way: a texture can put a
+	-- shirt on someone but it cannot give them a brim or a chin.
+	CharacterRig.Dress(rig, spec.scale, spec.accessories)
 
 	buildTool(rig, spec)
 	return rig
