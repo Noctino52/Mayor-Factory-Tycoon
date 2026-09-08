@@ -98,11 +98,17 @@ end
 
 --[[
 	Anything worn on the body: an apron, a hat, a beard, a tool belt. Each
-	piece is a box at an offset from the figure's feet, so PoseBody carries
+	piece is placed at an offset from the figure's feet, so PoseBody carries
 	it along with everything else and it needs no special handling.
+
+	A piece may be a `shape` other than a block and may carry a `tilt`. Both
+	matter more than they sound: a helmet is a squashed ball and a cap peak
+	is a tilted slab, and at this size the difference between those and two
+	flat boxes is the difference between a person and a stack of bricks.
 
 	Worn, not held: a limb moves under its own rotation, so a cuff or a
 	bracer would have to be posed with the arm rather than hung off the body.
+	A hand is the exception, and says which side it belongs to.
 ]]
 function CharacterRig.Dress(rig, scale, pieces)
 	for index, piece in ipairs(pieces or {}) do
@@ -113,7 +119,20 @@ function CharacterRig.Dress(rig, scale, pieces)
 			rig
 		)
 		part.Material = piece.material or Enum.Material.SmoothPlastic
-		part:SetAttribute("Offset", piece.offset * scale)
+
+		if piece.shape then
+			part.Shape = piece.shape
+		end
+
+		if piece.hand then
+			part:SetAttribute("HandSide", piece.hand)
+		else
+			part:SetAttribute("Offset", piece.offset * scale)
+		end
+
+		if piece.tilt then
+			part:SetAttribute("Tilt", piece.tilt)
+		end
 	end
 end
 
@@ -189,13 +208,26 @@ function CharacterRig.PoseBody(rig, frame, pose)
 	local stride = pose.stride or 0
 	local lift = CFrame.new(0, pose.bounce or 0, 0)
 	local scale = pose.scale
+	local body = frame * lift
+
+	-- The free arm either swings with the walk or is thrown in the air; its
+	-- hand has to end up wherever it put it either way.
+	local leftAngle = pose.armRaise or -stride
 
 	for _, part in ipairs(rig:GetChildren()) do
 		if part:IsA("BasePart") then
+			local tilt = part:GetAttribute("Tilt")
+			local turn = tilt and CFrame.Angles(tilt.X, tilt.Y, tilt.Z) or nil
+
+			local handSide = part:GetAttribute("HandSide")
 			local offset = part:GetAttribute("Offset")
-			if offset then
+
+			if handSide and scale then
+				local at = CharacterRig.HandPoint(scale, handSide, handSide < 0 and leftAngle or 0)
+				part.CFrame = body * CFrame.new(at) * CFrame.Angles(handSide < 0 and leftAngle or 0, 0, 0)
+			elseif offset then
 				if part.Name == "LeftArm" and pose.armRaise and scale then
-					part.CFrame = CharacterRig.ArmCFrame(frame * lift, scale, -1, pose.armRaise)
+					part.CFrame = CharacterRig.ArmCFrame(body, scale, -1, pose.armRaise)
 				else
 					local lean = 0
 					if part.Name == "LeftLeg" then
@@ -205,7 +237,9 @@ function CharacterRig.PoseBody(rig, frame, pose)
 					elseif part.Name == "LeftArm" then
 						lean = -stride
 					end
-					part.CFrame = frame * lift * CFrame.new(offset) * CFrame.Angles(lean, 0, 0)
+
+					local placed = body * CFrame.new(offset) * CFrame.Angles(lean, 0, 0)
+					part.CFrame = turn and (placed * turn) or placed
 				end
 			end
 		end
