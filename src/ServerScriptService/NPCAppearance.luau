@@ -409,6 +409,55 @@ local ACCESSORY_COLOURS = {
 }
 
 --[[
+	The accessories, as model assets. They are loaded once and kept, because
+	InsertService goes out to Roblox for them and that is not something to do
+	per trader per plot.
+
+	Loading them beats saving them into the place as files only because it
+	costs nothing at this end: the models are already uploaded, and an
+	imported model keeps every part where it was drawn either way. A copy
+	dropped in ReplicatedStorage/Shared/Accessories still wins if there is
+	one, so the game does not depend on a fetch that can fail.
+]]
+local ACCESSORY_ASSETS = {
+	hardhat = 82732572425626,
+	hair_long = 139227507024226,
+	cap_soft = 133152578008835,
+	beard_full = 108095046765276,
+	beard_smith = 82097128835397,
+}
+
+local loadedAccessories = {}
+
+local function fetchAccessory(accessoryName)
+	if loadedAccessories[accessoryName] ~= nil then
+		return loadedAccessories[accessoryName] or nil
+	end
+
+	local assetId = ACCESSORY_ASSETS[accessoryName]
+	if not assetId then
+		loadedAccessories[accessoryName] = false
+		return nil
+	end
+
+	local ok, result = pcall(function()
+		return game:GetService("InsertService"):LoadAsset(assetId)
+	end)
+
+	if not ok or not result then
+		warn("[NPCAppearance] could not load " .. accessoryName .. ": " .. tostring(result))
+		loadedAccessories[accessoryName] = false
+		return nil
+	end
+
+	-- LoadAsset hands back a wrapper holding the model
+	local model = result:FindFirstChildWhichIsA("Model") or result
+	model.Parent = nil
+	loadedAccessories[accessoryName] = model
+	return model
+end
+
+--[[
 	Hangs one accessory on the head. The pieces are modelled around the head's
 	centre, so they need placing there and nowhere else - the whole reason for
 	keeping them in a model rather than as loose meshes.
@@ -417,6 +466,7 @@ function NPCAppearance.AddAccessory(model, accessoryName, scale)
 	local shared = ReplicatedStorage:FindFirstChild("Shared")
 	local folder = shared and shared:FindFirstChild("Accessories")
 	local source = folder and folder:FindFirstChild(accessoryName)
+	source = source or fetchAccessory(accessoryName)
 	if not source then
 		return false
 	end
