@@ -25,7 +25,12 @@ local newPart = CharacterRig.NewPart
 
 local WOOD = Color3.fromRGB(120, 78, 44)
 local STEEL = Color3.fromRGB(160, 165, 170)
-local LEATHER = Color3.fromRGB(74, 48, 30)
+local LEATHER = Color3.fromRGB(96, 62, 38)
+local APRON = Color3.fromRGB(64, 66, 66)
+local BOOT = Color3.fromRGB(74, 52, 36)
+local HAIR_DARK = Color3.fromRGB(72, 46, 30)
+local HI_VIS = Color3.fromRGB(232, 182, 44)
+local HI_VIS_DEEP = Color3.fromRGB(206, 156, 30)
 
 -- How long the celebration runs after a sale, in seconds
 local CHEER_TIME = 1.4
@@ -51,25 +56,40 @@ local HEAD_Y = CharacterRig.HeadY(1)
 	across the plot by the rhythm alone.
 ]]
 local NPC_SPECS = {
+	--[[
+		Mira, carpenter. Hard hat over shoulder-length hair, plaid work shirt,
+		hi-vis braces with square buckles, and a loaded tool belt over yellow
+		work trousers.
+	]]
 	Mira = {
 		scale = 0.5,
 		palette = {
-			skin = Color3.fromRGB(234, 184, 146),
-			shirt = Color3.fromRGB(58, 118, 76),
-			trousers = Color3.fromRGB(96, 70, 46),
+			skin = Color3.fromRGB(240, 200, 168),
+			shirt = Color3.fromRGB(138, 62, 52),
+			arms = Color3.fromRGB(138, 62, 52),
+			trousers = Color3.fromRGB(222, 176, 60),
 		},
 		dress = {
-			-- Canvas apron with a nail pocket across it
-			{ name = "Apron", size = Vector3.new(2.10, 1.70, 0.20), color = Color3.fromRGB(206, 180, 130), offset = Vector3.new(0, TORSO_Y - 0.10, -0.56) },
-			{ name = "ApronPocket", size = Vector3.new(1.30, 0.54, 0.14), color = Color3.fromRGB(176, 148, 100), offset = Vector3.new(0, TORSO_Y - 0.56, -0.66) },
-			-- Neckerchief and a flat cap
-			{ name = "Scarf", size = Vector3.new(1.48, 0.30, 1.14), color = Color3.fromRGB(168, 62, 52), offset = Vector3.new(0, TORSO_Y + 0.94, 0) },
-			{ name = "Cap", size = Vector3.new(2.10, 0.44, 1.90), color = Color3.fromRGB(96, 70, 46), offset = Vector3.new(0, HEAD_Y + 0.56, 0) },
-			{ name = "CapPeak", size = Vector3.new(2.00, 0.18, 0.80), color = Color3.fromRGB(78, 56, 36), offset = Vector3.new(0, HEAD_Y + 0.40, -0.86) },
+			{ name = "HairBack", size = Vector3.new(2.14, 1.60, 0.56), color = HAIR_DARK, offset = Vector3.new(0, HEAD_Y - 0.10, 0.70) },
+			{ name = "HairSideL", size = Vector3.new(0.44, 1.40, 1.46), color = HAIR_DARK, offset = Vector3.new(-0.96, HEAD_Y - 0.26, 0.06) },
+			{ name = "HairSideR", size = Vector3.new(0.44, 1.40, 1.46), color = HAIR_DARK, offset = Vector3.new(0.96, HEAD_Y - 0.26, 0.06) },
+			{ name = "Ponytail", size = Vector3.new(0.78, 1.40, 0.78), color = HAIR_DARK, offset = Vector3.new(0, HEAD_Y - 1.00, 0.98) },
+			{ name = "Helmet", size = Vector3.new(2.14, 0.72, 1.98), color = HI_VIS, offset = Vector3.new(0, HEAD_Y + 0.62, 0) },
+			{ name = "HelmetBrim", size = Vector3.new(2.52, 0.16, 2.44), color = HI_VIS_DEEP, offset = Vector3.new(0, HEAD_Y + 0.34, 0) },
+			{ name = "BraceL", size = Vector3.new(0.42, 1.94, 0.16), color = HI_VIS, offset = Vector3.new(-0.56, TORSO_Y + 0.04, -0.57) },
+			{ name = "BraceR", size = Vector3.new(0.42, 1.94, 0.16), color = HI_VIS, offset = Vector3.new(0.56, TORSO_Y + 0.04, -0.57) },
+			{ name = "BuckleL", size = Vector3.new(0.38, 0.36, 0.12), color = LEATHER, offset = Vector3.new(-0.56, TORSO_Y + 0.54, -0.66) },
+			{ name = "BuckleR", size = Vector3.new(0.38, 0.36, 0.12), color = LEATHER, offset = Vector3.new(0.56, TORSO_Y + 0.54, -0.66) },
+			{ name = "Belt", size = Vector3.new(2.14, 0.44, 1.12), color = LEATHER, offset = Vector3.new(0, TORSO_Y - 0.80, 0) },
+			{ name = "PouchL", size = Vector3.new(0.62, 0.64, 0.42), color = LEATHER, offset = Vector3.new(-0.72, TORSO_Y - 1.06, -0.58) },
+			{ name = "PouchR", size = Vector3.new(0.62, 0.64, 0.42), color = LEATHER, offset = Vector3.new(0.72, TORSO_Y - 1.06, -0.58) },
+			{ name = "BeltTool", size = Vector3.new(0.20, 0.84, 0.20), color = Color3.fromRGB(176, 44, 40), offset = Vector3.new(-1.04, TORSO_Y - 1.34, -0.28) },
+			{ name = "BootL", size = Vector3.new(1.08, 0.46, 1.18), color = BOOT, offset = Vector3.new(-0.5, 0.23, -0.06) },
+			{ name = "BootR", size = Vector3.new(1.08, 0.46, 1.18), color = BOOT, offset = Vector3.new(0.5, 0.23, -0.06) },
 		},
 		stand = Vector3.new(-1.1, 0, -1.5),
 		work = Vector3.new(-1.1, 0, -0.2),
-		-- A carpenter's handsaw: a broad blade with a short grip
+		-- A carpenter handsaw: a broad blade with a short grip
 		tool = {
 			{ name = "ToolBlade", size = Vector3.new(0.10, 0.34, 1.05), color = STEEL, material = Enum.Material.Metal },
 			{ name = "ToolGrip", size = Vector3.new(0.16, 0.30, 0.30), color = WOOD, offset = Vector3.new(0, 0, 0.62) },
@@ -80,26 +100,35 @@ local NPC_SPECS = {
 			return -0.62, -0.46 - 0.30 * math.sin(phase)
 		end,
 	},
+
+	--[[
+		Bront, mason. Hard hat, hi-vis vest with reflective stripes over a
+		dark work shirt, full black beard, jeans and a broad buckled belt.
+	]]
 	Bront = {
 		scale = 0.5,
 		palette = {
-			skin = Color3.fromRGB(215, 168, 128),
-			shirt = Color3.fromRGB(158, 92, 60),
-			trousers = Color3.fromRGB(74, 74, 78),
+			skin = Color3.fromRGB(226, 178, 140),
+			shirt = Color3.fromRGB(46, 54, 72),
+			arms = Color3.fromRGB(46, 54, 72),
+			trousers = Color3.fromRGB(52, 72, 116),
 		},
 		dress = {
-			-- Hard hat, and an apron the stone dust has gone grey on
-			{ name = "Helmet", size = Vector3.new(2.10, 0.72, 1.94), color = Color3.fromRGB(226, 176, 44), offset = Vector3.new(0, HEAD_Y + 0.62, 0) },
-			{ name = "HelmetBrim", size = Vector3.new(2.50, 0.16, 2.40), color = Color3.fromRGB(206, 158, 34), offset = Vector3.new(0, HEAD_Y + 0.34, 0) },
-			{ name = "Apron", size = Vector3.new(2.06, 1.30, 0.20), color = Color3.fromRGB(158, 158, 152), offset = Vector3.new(0, TORSO_Y - 0.24, -0.56) },
-			-- Tool belt with a pouch on each hip
-			{ name = "Belt", size = Vector3.new(2.16, 0.34, 1.14), color = LEATHER, offset = Vector3.new(0, TORSO_Y - 0.82, 0) },
-			{ name = "PouchL", size = Vector3.new(0.52, 0.60, 0.44), color = LEATHER, offset = Vector3.new(-0.72, TORSO_Y - 1.02, -0.60) },
-			{ name = "PouchR", size = Vector3.new(0.52, 0.60, 0.44), color = LEATHER, offset = Vector3.new(0.72, TORSO_Y - 1.02, -0.60) },
+			{ name = "Helmet", size = Vector3.new(2.14, 0.72, 1.98), color = HI_VIS, offset = Vector3.new(0, HEAD_Y + 0.62, 0) },
+			{ name = "HelmetBrim", size = Vector3.new(2.52, 0.16, 2.44), color = HI_VIS_DEEP, offset = Vector3.new(0, HEAD_Y + 0.34, 0) },
+			{ name = "Beard", size = Vector3.new(1.46, 0.86, 0.70), color = Color3.fromRGB(28, 26, 28), offset = Vector3.new(0, HEAD_Y - 0.34, -0.50) },
+			{ name = "Vest", size = Vector3.new(2.10, 1.66, 0.22), color = HI_VIS, offset = Vector3.new(0, TORSO_Y - 0.08, -0.56) },
+			{ name = "VestStripeL", size = Vector3.new(0.32, 1.66, 0.10), color = Color3.fromRGB(240, 240, 236), offset = Vector3.new(-0.54, TORSO_Y - 0.08, -0.68) },
+			{ name = "VestStripeR", size = Vector3.new(0.32, 1.66, 0.10), color = Color3.fromRGB(240, 240, 236), offset = Vector3.new(0.54, TORSO_Y - 0.08, -0.68) },
+			{ name = "VestBand", size = Vector3.new(2.12, 0.28, 0.10), color = Color3.fromRGB(240, 240, 236), offset = Vector3.new(0, TORSO_Y - 0.46, -0.68) },
+			{ name = "Belt", size = Vector3.new(2.14, 0.38, 1.12), color = LEATHER, offset = Vector3.new(0, TORSO_Y - 0.88, 0) },
+			{ name = "Buckle", size = Vector3.new(0.54, 0.36, 0.12), color = Color3.fromRGB(198, 158, 74), offset = Vector3.new(0, TORSO_Y - 0.88, -0.60) },
+			{ name = "BootL", size = Vector3.new(1.08, 0.46, 1.18), color = BOOT, offset = Vector3.new(-0.5, 0.23, -0.06) },
+			{ name = "BootR", size = Vector3.new(1.08, 0.46, 1.18), color = BOOT, offset = Vector3.new(0.5, 0.23, -0.06) },
 		},
 		stand = Vector3.new(1.2, 0, -1.5),
 		work = Vector3.new(1.2, 0, -0.2),
-		-- A mason's trowel: a flat steel blade on a stubby handle
+		-- A mason trowel: a flat steel blade on a stubby handle
 		tool = {
 			{ name = "ToolGrip", size = Vector3.new(0.14, 0.14, 0.34), color = WOOD },
 			{ name = "ToolBlade", size = Vector3.new(0.42, 0.07, 0.62), color = STEEL, material = Enum.Material.Metal, offset = Vector3.new(0, -0.06, -0.46) },
@@ -110,26 +139,35 @@ local NPC_SPECS = {
 			return -0.56 + 0.12 * math.sin(phase * 2), -0.40 - 0.20 * math.sin(phase)
 		end,
 	},
+
+	--[[
+		Elrik, smith. Long leather apron on shoulder straps over rolled white
+		sleeves, fair beard, soft dark cap.
+	]]
 	Elrik = {
 		scale = 0.5,
 		palette = {
-			skin = Color3.fromRGB(222, 176, 132),
-			shirt = Color3.fromRGB(64, 68, 76),
-			trousers = Color3.fromRGB(46, 40, 36),
+			skin = Color3.fromRGB(238, 200, 166),
+			shirt = Color3.fromRGB(238, 236, 228),
+			arms = Color3.fromRGB(238, 236, 228),
+			trousers = Color3.fromRGB(58, 58, 60),
 		},
 		dress = {
-			-- Leather apron on a shoulder strap, beard, goggles up on the brow
-			{ name = "Apron", size = Vector3.new(2.06, 1.80, 0.22), color = LEATHER, offset = Vector3.new(0, TORSO_Y - 0.18, -0.56) },
-			{ name = "StrapL", size = Vector3.new(0.34, 1.00, 0.16), color = LEATHER, offset = Vector3.new(-0.52, TORSO_Y + 0.62, -0.58) },
-			{ name = "StrapR", size = Vector3.new(0.34, 1.00, 0.16), color = LEATHER, offset = Vector3.new(0.52, TORSO_Y + 0.62, -0.58) },
-			{ name = "Beard", size = Vector3.new(1.30, 0.70, 0.60), color = Color3.fromRGB(112, 86, 60), offset = Vector3.new(0, HEAD_Y - 0.30, -0.56) },
-			{ name = "Goggles", size = Vector3.new(2.02, 0.30, 1.80), color = Color3.fromRGB(48, 40, 34), offset = Vector3.new(0, HEAD_Y + 0.46, 0) },
-			{ name = "LensL", size = Vector3.new(0.44, 0.34, 0.20), color = Color3.fromRGB(196, 206, 176), offset = Vector3.new(-0.44, HEAD_Y + 0.46, -0.92) },
-			{ name = "LensR", size = Vector3.new(0.44, 0.34, 0.20), color = Color3.fromRGB(196, 206, 176), offset = Vector3.new(0.44, HEAD_Y + 0.46, -0.92) },
+			{ name = "Cap", size = Vector3.new(2.08, 0.56, 1.94), color = Color3.fromRGB(78, 82, 84), offset = Vector3.new(0, HEAD_Y + 0.54, 0) },
+			{ name = "Beard", size = Vector3.new(1.46, 0.94, 0.70), color = Color3.fromRGB(214, 178, 96), offset = Vector3.new(0, HEAD_Y - 0.38, -0.50) },
+			-- The apron is the whole outfit: bib, straps, and a skirt that
+			-- carries on down over the legs
+			{ name = "ApronBib", size = Vector3.new(1.36, 0.90, 0.22), color = APRON, offset = Vector3.new(0, TORSO_Y + 0.66, -0.56) },
+			{ name = "Apron", size = Vector3.new(2.08, 2.70, 0.24), color = APRON, offset = Vector3.new(0, TORSO_Y - 0.66, -0.56) },
+			{ name = "ApronBelt", size = Vector3.new(2.12, 0.26, 0.30), color = Color3.fromRGB(52, 38, 26), offset = Vector3.new(0, TORSO_Y - 0.34, -0.62) },
+			{ name = "StrapL", size = Vector3.new(0.32, 1.14, 0.18), color = APRON, offset = Vector3.new(-0.46, TORSO_Y + 0.78, -0.54) },
+			{ name = "StrapR", size = Vector3.new(0.32, 1.14, 0.18), color = APRON, offset = Vector3.new(0.46, TORSO_Y + 0.78, -0.54) },
+			{ name = "BootL", size = Vector3.new(1.08, 0.46, 1.18), color = BOOT, offset = Vector3.new(-0.5, 0.23, -0.06) },
+			{ name = "BootR", size = Vector3.new(1.08, 0.46, 1.18), color = BOOT, offset = Vector3.new(0.5, 0.23, -0.06) },
 		},
 		stand = Vector3.new(0.1, 0, -1.5),
 		work = Vector3.new(0.1, 0, -0.2),
-		-- A smith's hammer: a heavy head across the end of the haft
+		-- A smith hammer: a heavy head across the end of the haft
 		tool = {
 			{ name = "ToolGrip", size = Vector3.new(0.13, 0.13, 0.66), color = WOOD },
 			{ name = "ToolHead", size = Vector3.new(0.26, 0.26, 0.46), color = STEEL, material = Enum.Material.Metal, offset = Vector3.new(0, 0, -0.42) },
@@ -171,7 +209,7 @@ local function buildNPC(npcName)
 
 	local rig = CharacterRig.Build(npcName, spec.scale, spec.palette)
 	CharacterRig.Dress(rig, spec.scale, spec.dress)
-	newPart("RightArm", R6.limb * spec.scale, spec.palette.shirt, rig)
+	newPart("RightArm", R6.limb * spec.scale, spec.palette.arms or spec.palette.shirt, rig)
 	buildTool(rig, spec)
 	return rig
 end

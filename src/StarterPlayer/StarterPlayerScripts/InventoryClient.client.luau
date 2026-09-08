@@ -1995,6 +1995,8 @@ local function isMouseInsideContextMenu()
 end
 
 local function rotateContextMenuTarget()
+    -- One turn per click: a rotation moves the model and re-anchors the menu,
+    -- so a double-click landing on the new position would turn it twice
     if tick() - lastContextRotateAt < 0.15 then
         return
     end
@@ -3020,11 +3022,6 @@ local function onInputBegan(input, gameProcessed)
         return
     end
 
-    if input.UserInputType == Enum.UserInputType.MouseButton1 and itemContextMenu and itemContextMenu.Visible and isMouseInsideContextMenu() then
-        rotateContextMenuTarget()
-        return
-    end
-
     if gameProcessed then return end
 
     if input.UserInputType == Enum.UserInputType.Keyboard and input.KeyCode == Enum.KeyCode.R then
@@ -3037,8 +3034,9 @@ local function onInputBegan(input, gameProcessed)
     
     if input.UserInputType == Enum.UserInputType.MouseButton1 then
         if itemContextMenu and itemContextMenu.Visible then
+            -- The rotate button handles its own clicks; this only has to get
+            -- out of the way of them, and close the menu on a click elsewhere
             if isMouseInsideContextMenu() then
-                rotateContextMenuTarget()
                 return
             end
 

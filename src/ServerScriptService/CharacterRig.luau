@@ -57,6 +57,9 @@ function CharacterRig.Build(name, scale, palette)
 	local skin = palette.skin or CharacterRig.DefaultPalette.skin
 	local shirt = palette.shirt or CharacterRig.DefaultPalette.shirt
 	local trousers = palette.trousers or CharacterRig.DefaultPalette.trousers
+	-- Sleeves are worth their own colour: at this size a rolled white sleeve
+	-- against a dark apron is most of what tells one trade from another
+	local sleeves = palette.arms or shirt
 
 	local rig = Instance.new("Model")
 	rig.Name = name
@@ -72,7 +75,7 @@ function CharacterRig.Build(name, scale, palette)
 	CharacterRig.NewPart("LeftLeg", limb, trousers, rig):SetAttribute("Offset", Vector3.new(-limb.X / 2, legY, 0))
 	CharacterRig.NewPart("RightLeg", limb, trousers, rig):SetAttribute("Offset", Vector3.new(limb.X / 2, legY, 0))
 	CharacterRig.NewPart("Torso", torso, shirt, rig):SetAttribute("Offset", Vector3.new(0, torsoY, 0))
-	CharacterRig.NewPart("LeftArm", limb, shirt, rig)
+	CharacterRig.NewPart("LeftArm", limb, sleeves, rig)
 		:SetAttribute("Offset", Vector3.new(-(torso.X + limb.X) / 2, torsoY, 0))
 
 	local headPart = CharacterRig.NewPart("Head", head, skin, rig)
