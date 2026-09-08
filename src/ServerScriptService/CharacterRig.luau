@@ -89,17 +89,38 @@ function CharacterRig.Build(name, scale, palette)
 	face.Face = Enum.NormalId.Front
 	face.Parent = headPart
 
-	if palette.hat then
-		local hat = CharacterRig.NewPart("Hat", Vector3.new(2.2, 0.45, 2.2) * scale, palette.hat, rig)
-		hat:SetAttribute("Offset", Vector3.new(0, headY + head.Y * 0.62, 0))
-		if palette.hatBrim then
-			CharacterRig.NewPart("HatBrim", Vector3.new(2.9, 0.16, 2.9) * scale, palette.hat, rig)
-				:SetAttribute("Offset", Vector3.new(0, headY + head.Y * 0.42, 0))
-		end
-	end
-
 	rig.PrimaryPart = rig:FindFirstChild("Torso")
 	return rig
+end
+
+--[[
+	Anything worn on the body: an apron, a hat, a beard, a tool belt. Each
+	piece is a box at an offset from the figure's feet, so PoseBody carries
+	it along with everything else and it needs no special handling.
+
+	Worn, not held: a limb moves under its own rotation, so a cuff or a
+	bracer would have to be posed with the arm rather than hung off the body.
+]]
+function CharacterRig.Dress(rig, scale, pieces)
+	for index, piece in ipairs(pieces or {}) do
+		local part = CharacterRig.NewPart(
+			piece.name or ("Worn" .. index),
+			piece.size * scale,
+			piece.color,
+			rig
+		)
+		part.Material = piece.material or Enum.Material.SmoothPlastic
+		part:SetAttribute("Offset", piece.offset * scale)
+	end
+end
+
+-- Reference heights in the rig's own frame, for placing what it wears
+function CharacterRig.TorsoY(scale)
+	return (R6.limb.Y + R6.torso.Y / 2) * scale
+end
+
+function CharacterRig.HeadY(scale)
+	return (R6.limb.Y + R6.torso.Y + R6.head.Y / 2) * scale
 end
 
 --[[

@@ -193,18 +193,18 @@ def build_mira():
     # Open shed: a board wall at the back under a lean-to of planks
     for index in range(9):
         x = -3.20 + index * 0.80
-        box(f"WallBoard{index}", (0.74, 0.16, 2.60), (x, 3.30, PAD_TOP + 1.30), MAT["timber"], bevel=0.02)
-    box("WallBeam", (7.20, 0.24, 0.22), (0, 3.30, PAD_TOP + 2.70), MAT["bark"], bevel=0.025)
+        box(f"WallBoard{index}", (0.74, 0.16, 3.10), (x, 3.30, PAD_TOP + 1.55), MAT["timber"], bevel=0.02)
+    box("WallBeam", (7.20, 0.24, 0.22), (0, 3.30, PAD_TOP + 3.20), MAT["bark"], bevel=0.025)
 
     for index, x in enumerate((-3.20, 3.20)):
-        box(f"RoofPost{index}", (0.26, 0.26, 2.30), (x, 0.60, PAD_TOP + 1.15), MAT["bark"], bevel=0.025)
+        box(f"RoofPost{index}", (0.26, 0.26, 2.90), (x, 0.60, PAD_TOP + 1.45), MAT["bark"], bevel=0.025)
     for index in range(7):
         y = 0.40 + index * 0.50
         lift = 0.30 * index / 6.0
         box(
             f"RoofPlank{index}",
             (7.00, 0.48, 0.10),
-            (0, y, PAD_TOP + 2.32 + lift),
+            (0, y, PAD_TOP + 2.92 + lift),
             MAT["timber"],
             rotation=(math.radians(-4.5), 0, 0),
             bevel=0.02,

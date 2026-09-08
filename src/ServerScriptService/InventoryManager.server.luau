@@ -93,15 +93,6 @@ local ITEM_VISUAL_ADJUSTMENTS = {
     Conveyor = {
         maxHeight = 1.2,
     },
-    MiraSellZone = {
-        alignToFootprint = true,
-    },
-    BrontSellZone = {
-        alignToFootprint = true,
-    },
-    ElrikSellZone = {
-        alignToFootprint = true,
-    },
     CurvedConveyor = {
         alignToFootprint = true,
         footprintPadding = 0.82,
@@ -161,10 +152,18 @@ local function shouldAlignModelToFootprint(itemName)
         return adjustment.alignToFootprint == true
     end
 
-    -- Machines sit on the ground by default. The alternative path assumes the
-    -- model's pivot is at its vertical centre, which is false for anything
-    -- built with its base at the bottom, and leaves the machine hovering.
-    return Definitions.GetMachine(itemName) ~= nil
+    -- Machines and sell zones sit on the ground by default. The alternative
+    -- path assumes the model's pivot is at its vertical centre, which is
+    -- false for anything built with its base at the bottom, and leaves it
+    -- hovering. This rule lives in both the server and the client copies of
+    -- this function and has to say the same thing in each, or the ghost
+    -- floats where the placed model does not.
+    if Definitions.GetMachine(itemName) then
+        return true
+    end
+
+    local itemDef = Definitions.GetItem(itemName)
+    return itemDef ~= nil and itemDef.type == "sell_zone"
 end
 
 local function getVisualRotation(itemName, rotation)
