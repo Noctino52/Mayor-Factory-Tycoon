@@ -22,6 +22,8 @@
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
+local Definitions = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Definitions"))
+
 local NPCAppearance = {}
 
 local R6_LIMBS = {
@@ -218,6 +220,35 @@ local function tagParts(model)
 	end
 end
 
+-- Clothing the game owns, by asset id. Everything else an NPC wears comes
+-- out of the wardrobe folder, but a shirt and a pair of trousers are just
+-- two numbers and belong with the rest of the NPC's definition.
+local function dressFromDefinition(model, npcName)
+	local npc = Definitions.GetNPC(npcName)
+	local appearance = npc and npc.appearance
+	if not appearance then
+		return false
+	end
+
+	local dressed = false
+
+	if (tonumber(appearance.shirt) or 0) > 0 then
+		local shirt = Instance.new("Shirt")
+		shirt.ShirtTemplate = "rbxassetid://" .. tostring(appearance.shirt)
+		shirt.Parent = model
+		dressed = true
+	end
+
+	if (tonumber(appearance.pants) or 0) > 0 then
+		local pants = Instance.new("Pants")
+		pants.PantsTemplate = "rbxassetid://" .. tostring(appearance.pants)
+		pants.Parent = model
+		dressed = true
+	end
+
+	return dressed
+end
+
 local function wear(model, wardrobe)
 	local humanoid = model:FindFirstChildWhichIsA("Humanoid")
 
@@ -254,22 +285,28 @@ end
 ]]
 function NPCAppearance.Build(npcName, scale)
 	local folder = appearanceFolder()
-	if not folder then
-		return nil
-	end
 
-	local wardrobe = folder:FindFirstChild(npcName)
-	if not wardrobe or #wardrobe:GetChildren() == 0 then
+	local wardrobe = folder and folder:FindFirstChild(npcName)
+	local npc = Definitions.GetNPC(npcName)
+	local appearance = npc and npc.appearance
+	local hasClothing = appearance
+		and ((tonumber(appearance.shirt) or 0) > 0 or (tonumber(appearance.pants) or 0) > 0)
+	local hasWardrobe = wardrobe and #wardrobe:GetChildren() > 0
+
+	if not hasClothing and not hasWardrobe then
 		return nil
 	end
 
 	-- A rig dropped in the folder wins, for anyone who wants to hand-build
 	-- one; otherwise the standard R6 body is built here.
-	local rig = folder:FindFirstChild("Rig")
+	local rig = folder and folder:FindFirstChild("Rig")
 	local model = (rig and rig:IsA("Model")) and rig:Clone() or NPCAppearance.BuildRig(npcName)
 	model.Name = npcName
 
-	wear(model, wardrobe)
+	dressFromDefinition(model, npcName)
+	if wardrobe then
+		wear(model, wardrobe)
+	end
 
 	-- Scaled before anything is measured: a rig comes out of Studio at full
 	-- R6 size, and these people stand in a diorama. ScaleTo carries the
