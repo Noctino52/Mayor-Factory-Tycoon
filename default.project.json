@@ -47,6 +47,10 @@
           "Conveyor": {"$path": "src/Workspace/Models/Conveyor Belt.rbxm"},
           "CurvedConveyor": {"$path": "src/Workspace/Models/Curved Conveyor.rbxm"}
         },
+        "NPCAppearance": {
+          "$className": "Folder",
+          "$ignoreUnknownInstances": true
+        },
         "ProductionItemTemplates": {
           "$className": "Folder",
           "IronOre": {"$path": "src/Workspace/Models/Iron ore.rbxm"},

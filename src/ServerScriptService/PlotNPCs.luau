@@ -17,6 +17,7 @@
 local RunService = game:GetService("RunService")
 
 local CharacterRig = require(game.ServerScriptService.CharacterRig)
+local NPCAppearance = require(game.ServerScriptService.NPCAppearance)
 
 local PlotNPCs = {}
 
@@ -275,15 +276,27 @@ local function buildTool(rig, spec)
 	end
 end
 
+--[[
+	A trader, dressed if there is anything to dress them in.
+
+	The wardrobe comes first: a real Roblox avatar in catalogue clothing is
+	what these people are meant to look like. The figure built out of parts
+	is the fallback, and stays in the game so a plot is never populated by
+	nobody while the wardrobe is being filled.
+]]
 local function buildNPC(npcName)
 	local spec = NPC_SPECS[npcName]
 	if not spec then
 		return nil
 	end
 
-	local rig = CharacterRig.Build(npcName, spec.scale, spec.palette)
-	CharacterRig.Dress(rig, spec.scale, spec.dress)
-	newPart("RightArm", R6.limb * spec.scale, spec.palette.arms or spec.palette.shirt, rig)
+	local rig = NPCAppearance.Build(npcName, spec.scale)
+	if not rig then
+		rig = CharacterRig.Build(npcName, spec.scale, spec.palette)
+		CharacterRig.Dress(rig, spec.scale, spec.dress)
+		newPart("RightArm", R6.limb * spec.scale, spec.palette.arms or spec.palette.shirt, rig)
+	end
+
 	buildTool(rig, spec)
 	return rig
 end
@@ -343,8 +356,19 @@ local function armAngleTo(upOffset, forwardOffset)
 end
 
 -- Hangs the working arm and its tool from the right shoulder at `angle`
+-- The working arm, whichever rig this is: a built figure calls it RightArm,
+-- a real avatar calls it "Right Arm" and says so in its Limb attribute
+local function workingArm(rig)
+	for _, part in ipairs(rig:GetChildren()) do
+		if part:IsA("BasePart") and (part:GetAttribute("Limb") or part.Name) == "RightArm" then
+			return part
+		end
+	end
+	return nil
+end
+
 local function poseWorkArm(rig, frame, scale, angle)
-	local arm = rig:FindFirstChild("RightArm")
+	local arm = workingArm(rig)
 	if not arm then
 		return
 	end

@@ -92,6 +92,12 @@ function CharacterRig.Build(name, scale, palette)
 	face.Face = Enum.NormalId.Front
 	face.Parent = headPart
 
+	for _, part in ipairs(rig:GetChildren()) do
+		if part:IsA("BasePart") and part:GetAttribute("Offset") then
+			part:SetAttribute("Limb", part.Name)
+		end
+	end
+
 	rig.PrimaryPart = rig:FindFirstChild("Torso")
 	return rig
 end
@@ -216,6 +222,7 @@ function CharacterRig.PoseBody(rig, frame, pose)
 
 	for _, part in ipairs(rig:GetChildren()) do
 		if part:IsA("BasePart") then
+			local limb = part:GetAttribute("Limb") or part.Name
 			local tilt = part:GetAttribute("Tilt")
 			local turn = tilt and CFrame.Angles(tilt.X, tilt.Y, tilt.Z) or nil
 
@@ -226,15 +233,15 @@ function CharacterRig.PoseBody(rig, frame, pose)
 				local at = CharacterRig.HandPoint(scale, handSide, handSide < 0 and leftAngle or 0)
 				part.CFrame = body * CFrame.new(at) * CFrame.Angles(handSide < 0 and leftAngle or 0, 0, 0)
 			elseif offset then
-				if part.Name == "LeftArm" and pose.armRaise and scale then
+				if limb == "LeftArm" and pose.armRaise and scale then
 					part.CFrame = CharacterRig.ArmCFrame(body, scale, -1, pose.armRaise)
 				else
 					local lean = 0
-					if part.Name == "LeftLeg" then
+					if limb == "LeftLeg" then
 						lean = stride
-					elseif part.Name == "RightLeg" then
+					elseif limb == "RightLeg" then
 						lean = -stride
-					elseif part.Name == "LeftArm" then
+					elseif limb == "LeftArm" then
 						lean = -stride
 					end
 
