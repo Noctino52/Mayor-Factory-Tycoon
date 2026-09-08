@@ -145,6 +145,15 @@ def build_materials():
     MAT["steel"] = material("Steel", (0.52, 0.55, 0.58), 0.85, 0.30)
 
 
+def cone(name, lower, upper, depth, location, mat, rotation=(0, 0, 0), verts=16):
+    bpy.ops.mesh.primitive_cone_add(
+        vertices=verts, radius1=lower, radius2=upper, depth=depth, location=location, rotation=rotation
+    )
+    obj = bpy.context.active_object
+    obj.name = name
+    return _finish(obj, mat, 0.02, 1)
+
+
 # ---------------------------------------------------------------------------
 # The body underneath the clothes
 # ---------------------------------------------------------------------------
@@ -192,21 +201,53 @@ def build_body(skin, shirt, sleeve, trousers, boot):
 
 
 def build_hard_hat(shell, trim):
-    """Squashed dome with a brim under it and a peak over the eyes."""
-    ball("HeadHelmet", (2.16, 1.66, 1.34), (0, 0.02, HEAD_Z + 0.50), shell, segments=22)
-    box("HeadHelmetRim", (2.24, 1.76, 0.12), (0, 0.02, HEAD_Z + 0.34), trim, bevel=0.05)
-    box("HeadHelmetPeak", (1.34, 0.62, 0.12), (0, -0.94, HEAD_Z + 0.30), trim, rotation=(math.radians(-12), 0, 0), bevel=0.05)
-    box("HeadHelmetRidge", (0.32, 1.50, 0.20), (0, 0.02, HEAD_Z + 1.02), trim, bevel=0.07)
+    """
+    A builder's hard hat: a shallow dome with the brim under it and a peak
+    over the eyes. The brim sits above the brow so the face still shows -
+    a dome pushed down over it reads as a helmet, not a hat.
+
+    Everything here is sized against HEAD, which is two studs wide. A kit
+    drawn for a wider head swallows this one whole.
+    """
+    ball("HeadHelmetShell", (2.10, 1.94, 1.10), (0, 0, HEAD_Z + 0.66), shell, segments=26)
+    cylinder("HeadHelmetBrim", 1.24, 0.09, (0, -0.05, HEAD_Z + 0.55), shell, verts=28)
+    box("HeadHelmetPeak", (1.22, 0.76, 0.11), (0, -1.14, HEAD_Z + 0.57), shell,
+        rotation=(math.radians(-12), 0, 0), bevel=0.05)
+    box("HeadHelmetRidge", (0.30, 1.16, 0.16), (0, 0, HEAD_Z + 1.12), trim, bevel=0.06)
+    for index, x in enumerate((-0.58, 0.58)):
+        box(f"HeadHelmetVent{index}", (0.12, 0.80, 0.11), (x, 0, HEAD_Z + 1.05), trim, bevel=0.04)
 
 
-def build_beard(colour, moustache=True):
-    """Round the jaw, never across the eyes."""
-    box("HeadBeardChin", (1.36, 0.74, 0.60), (0, -0.28, HEAD_Z - 0.66), colour, bevel=0.20, segments=3)
-    box("HeadBeardJawline", (1.94, 0.96, 0.30), (0, -0.14, HEAD_Z - 0.46), colour, bevel=0.12, segments=3)
-    for side, x in (("L", -0.92), ("R", 0.92)):
-        box(f"HeadBeardSide{side}", (0.22, 0.88, 0.72), (x, -0.16, HEAD_Z - 0.14), colour, bevel=0.09)
+def build_beard(colour, point_depth=0.52, moustache=True):
+    """
+    Round the jaw, never across the eyes: a mass over the chin, sideburns
+    at the cheeks, and a tapered point below. A block over the front of the
+    head hides the face, which is what makes a figure look like a brick.
+    """
+    ball("HeadBeardMass", (1.88, 1.24, 1.10), (0, -0.32, HEAD_Z - 0.38), colour, segments=22)
+    for index, x in enumerate((-0.84, 0.84)):
+        ball(f"HeadBeardCheek{index}", (0.46, 0.96, 1.00), (x, -0.10, HEAD_Z - 0.08), colour, segments=16)
+    cone("HeadBeardPoint", 0.40, 0.08, point_depth, (0, -0.36, HEAD_Z - 0.82 - point_depth / 2), colour,
+         rotation=(math.radians(180), 0, 0))
     if moustache:
-        box("HeadMoustache", (0.86, 0.22, 0.20), (0, -0.62, HEAD_Z - 0.30), colour, bevel=0.07)
+        ball("HeadMoustache", (0.98, 0.36, 0.26), (0, -0.56, HEAD_Z - 0.06), colour, segments=16)
+
+
+def build_long_hair(colour, tie):
+    """Shoulder-length hair with a plait, all rounded: hair has no flat faces."""
+    ball("HeadHairCrown", (2.32, 1.82, 1.24), (0, 0.20, HEAD_Z + 0.40), colour, segments=26)
+    ball("HeadHairBack", (2.02, 1.00, 1.84), (0, 0.74, HEAD_Z - 0.38), colour, segments=22)
+    for index, x in enumerate((-0.96, 0.96)):
+        ball(f"HeadHairSide{index}", (0.52, 1.30, 1.74), (x, 0.12, HEAD_Z - 0.36), colour, segments=18)
+    cone("HeadPlait", 0.36, 0.12, 1.14, (0, 0.88, HEAD_Z - 1.36), colour, rotation=(math.radians(180), 0, 0))
+    cylinder("HeadPlaitTie", 0.30, 0.14, (0, 0.86, HEAD_Z - 0.90), tie, verts=14)
+
+
+def build_soft_cap(cloth, band):
+    """A soft cap with a leather band, the sort a smith works in."""
+    ball("HeadCapShell", (2.06, 1.96, 1.02), (0, 0.05, HEAD_Z + 0.57), cloth, segments=24)
+    cylinder("HeadCapBand", 1.05, 0.18, (0, 0.05, HEAD_Z + 0.51), band, verts=26)
+    ball("HeadCapStud", (0.26, 0.26, 0.20), (0, 0.05, HEAD_Z + 1.08), band, segments=12)
 
 
 def build_belt(colour, buckle_mat, buckle_size=(0.56, 0.12, 0.38)):
@@ -228,12 +269,7 @@ def build_mira():
     for side, x in (("L", -ARM_X), ("R", ARM_X)):
         box(f"Arm{side}Check", (1.04, 1.04, 0.16), (x, 0, TORSO_Z + 0.52), MAT["plaid_dark"], bevel=0.04)
 
-    # Shoulder-length hair with a tail, under the hat
-    ball("HeadHair", (2.10, 1.40, 1.22), (0, 0.06, HEAD_Z + 0.26), MAT["hair_dark"], segments=22)
-    box("HeadHairBack", (1.96, 0.44, 1.60), (0, 0.68, HEAD_Z - 0.28), MAT["hair_dark"], bevel=0.16, segments=3)
-    for side, x in (("L", -1.06), ("R", 1.06)):
-        box(f"HeadHairSide{side}", (0.30, 1.10, 1.60), (x, 0.14, HEAD_Z - 0.46), MAT["hair_dark"], bevel=0.14, segments=3)
-    box("HeadPonytail", (0.64, 0.64, 1.60), (0, 1.02, HEAD_Z - 1.24), MAT["hair_dark"], rotation=(math.radians(-14), 0, 0), bevel=0.16, segments=3)
+    build_long_hair(MAT["hair_dark"], MAT["leather"])
 
     build_hard_hat(MAT["hi_vis"], MAT["hi_vis_deep"])
 
@@ -282,10 +318,8 @@ def build_bront():
 def build_elrik():
     build_body(MAT["skin_light"], MAT["linen"], MAT["linen"], MAT["work_navy"], MAT["boot"])
 
-    # Soft cap and a fair beard
-    ball("HeadCap", (2.14, 1.62, 1.10), (0, 0.06, HEAD_Z + 0.46), MAT["apron_grey"], segments=22)
-    box("HeadCapBand", (2.18, 1.66, 0.20), (0, 0.04, HEAD_Z + 0.30), MAT["leather_dark"], bevel=0.06)
-    build_beard(MAT["hair_fair"])
+    build_soft_cap(MAT["apron_grey"], MAT["leather_dark"])
+    build_beard(MAT["hair_fair"], point_depth=0.74)
 
     # Leather apron: bib, body, and a skirt that carries on over the legs
     box("TorsoApronBib", (1.26, 0.18, 0.96), (0, -0.55, TORSO_Z + 0.74), MAT["apron_grey"], bevel=0.05)

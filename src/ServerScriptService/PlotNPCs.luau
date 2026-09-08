@@ -382,7 +382,13 @@ local function buildNPC(npcName)
 		return nil
 	end
 
-	local rig = NPCAppearance.Build(npcName, spec.scale)
+	-- A figure modelled whole comes first: it arrives with its clothes and
+	-- its hat already where they belong, which is the one thing hanging
+	-- accessories on a bare rig could never get right.
+	local rig = NPCAppearance.BuildFromModel(npcName, spec.scale)
+	local modelled = rig ~= nil
+
+	rig = rig or NPCAppearance.Build(npcName, spec.scale)
 	if not rig then
 		-- The stand-in has to wear its clothes, because it has no textures
 		rig = CharacterRig.Build(npcName, spec.scale, spec.palette)
@@ -390,10 +396,11 @@ local function buildNPC(npcName)
 		newPart("RightArm", R6.limb * spec.scale, spec.palette.arms or spec.palette.shirt, rig)
 	end
 
-	-- Hats, hair and beards are geometry either way: a texture can put a
-	-- shirt on someone but it cannot give them a brim or a chin. The
-	-- modelled ones are used when they have been uploaded.
-	CharacterRig.Dress(rig, spec.scale, spec.meshDress or spec.accessories)
+	-- A whole modelled figure already has its hat and beard on it; anything
+	-- else needs them adding.
+	if not modelled then
+		CharacterRig.Dress(rig, spec.scale, spec.meshDress or spec.accessories)
+	end
 
 	buildTool(rig, spec)
 	return rig
@@ -457,21 +464,33 @@ end
 -- The working arm, whichever rig this is: a built figure calls it RightArm,
 -- a real avatar calls it "Right Arm" and says so in its Limb attribute
 local function workingArm(rig)
-	for _, part in ipairs(rig:GetChildren()) do
+	local parts = {}
+	for _, part in ipairs(rig:GetDescendants()) do
 		if part:IsA("BasePart") and (part:GetAttribute("Limb") or part.Name) == "RightArm" then
-			return part
+			table.insert(parts, part)
 		end
 	end
-	return nil
+	return parts
 end
 
 local function poseWorkArm(rig, frame, scale, angle)
 	local arm = workingArm(rig)
-	if not arm then
+	if #arm == 0 then
 		return
 	end
 
-	arm.CFrame = CharacterRig.ArmCFrame(frame, scale, 1, angle)
+	-- One part or twenty, the arm swings about the shoulder as one thing
+	local shoulder = CharacterRig.Shoulder(scale, 1)
+	local swing = frame * CFrame.new(shoulder) * CFrame.Angles(angle, 0, 0) * CFrame.new(-shoulder)
+
+	for _, part in ipairs(arm) do
+		local offset = part:GetAttribute("Offset")
+		if offset then
+			part.CFrame = swing * CFrame.new(offset)
+		else
+			part.CFrame = CharacterRig.ArmCFrame(frame, scale, 1, angle)
+		end
+	end
 
 	local hand = CharacterRig.HandPoint(scale, 1, angle)
 	local grip = frame * CFrame.new(hand) * CFrame.Angles(angle, 0, 0)

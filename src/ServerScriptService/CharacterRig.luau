@@ -255,7 +255,19 @@ function CharacterRig.PoseBody(rig, frame, pose)
 						lean = -stride
 					end
 
-					local placed = body * CFrame.new(offset) * CFrame.Angles(lean, 0, 0)
+					-- A limb made of several parts swings about its joint.
+					-- Rotating each part about its own centre instead is
+					-- what tears an imported figure apart at the shoulder.
+					local pivot = part:GetAttribute("Pivot")
+					local placed
+					if pivot and lean ~= 0 then
+						placed = body
+							* CFrame.new(pivot)
+							* CFrame.Angles(lean, 0, 0)
+							* CFrame.new(offset - pivot)
+					else
+						placed = body * CFrame.new(offset) * CFrame.Angles(lean, 0, 0)
+					end
 					part.CFrame = turn and (placed * turn) or placed
 				end
 			end

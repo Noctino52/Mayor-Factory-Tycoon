@@ -135,6 +135,102 @@ function NPCAppearance.BuildRig(name)
 	return model
 end
 
+--[[
+	A trader modelled whole, in Blender, and imported as one model.
+
+	The figure arrives split into the six R6 groups - Head, Torso, ArmL,
+	ArmR, LegL, LegR - each of which is a handful of MeshParts, one per
+	material. Everything a group carries moves with it: the hat and beard are
+	Head, the apron and belt are Torso, a boot is its leg.
+
+	Nothing about where the pieces sit has to be worked out here. They come
+	in at the positions they were modelled at, which is the whole point of
+	importing the figure whole rather than hanging accessories on a rig and
+	guessing at the offsets.
+]]
+local MODEL_GROUPS = { "Head", "Torso", "ArmL", "ArmR", "LegL", "LegR" }
+
+local GROUP_LIMBS = {
+	Head = "Head",
+	Torso = "Torso",
+	ArmL = "LeftArm",
+	ArmR = "RightArm",
+	LegL = "LeftLeg",
+	LegR = "RightLeg",
+}
+
+-- The joint each group swings from, in studs from the feet at R6 scale 1
+local GROUP_PIVOTS = {
+	ArmL = Vector3.new(-1.5, 4, 0),
+	ArmR = Vector3.new(1.5, 4, 0),
+	LegL = Vector3.new(-0.5, 2, 0),
+	LegR = Vector3.new(0.5, 2, 0),
+}
+
+local function groupOf(partName, npcName)
+	-- Longest first, so ArmL is not read as Arm
+	for _, group in ipairs({ "ArmL", "ArmR", "LegL", "LegR", "Head", "Torso" }) do
+		if string.find(partName, npcName .. group, 1, true) == 1 then
+			return group
+		end
+	end
+	return nil
+end
+
+function NPCAppearance.BuildFromModel(npcName, scale)
+	local shared = ReplicatedStorage:FindFirstChild("Shared")
+	local folder = shared and shared:FindFirstChild("TraderModels")
+	local source = folder and folder:FindFirstChild(npcName)
+	if not source or not source:IsA("Model") then
+		return nil
+	end
+
+	local model = source:Clone()
+	model.Name = npcName
+
+	if scale and scale ~= 1 then
+		model:ScaleTo(scale)
+	end
+
+	local bounds, size = model:GetBoundingBox()
+	local feetY = bounds.Position.Y - size.Y / 2
+	local tagged = 0
+
+	for _, part in ipairs(model:GetDescendants()) do
+		if part:IsA("BasePart") then
+			part.Anchored = true
+			part.CanCollide = false
+			part.CanQuery = false
+			part.CanTouch = false
+
+			local group = groupOf(part.Name, npcName)
+			if group then
+				part:SetAttribute("Limb", GROUP_LIMBS[group])
+				part:SetAttribute("Offset", Vector3.new(
+					part.Position.X - bounds.Position.X,
+					part.Position.Y - feetY,
+					part.Position.Z - bounds.Position.Z
+				))
+
+				local pivot = GROUP_PIVOTS[group]
+				if pivot then
+					part:SetAttribute("Pivot", pivot * (scale or 1))
+				end
+				tagged += 1
+			end
+		end
+	end
+
+	if tagged == 0 then
+		warn("[NPCAppearance] " .. npcName .. " model has no parts named " .. npcName .. "<Group>_")
+		model:Destroy()
+		return nil
+	end
+
+	model.PrimaryPart = model:FindFirstChildWhichIsA("BasePart", true)
+	return model
+end
+
 local function appearanceFolder()
 	local shared = ReplicatedStorage:FindFirstChild("Shared")
 	return shared and shared:FindFirstChild("NPCAppearance")

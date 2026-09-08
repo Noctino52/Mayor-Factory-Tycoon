@@ -47,6 +47,10 @@
           "Conveyor": {"$path": "src/Workspace/Models/Conveyor Belt.rbxm"},
           "CurvedConveyor": {"$path": "src/Workspace/Models/Curved Conveyor.rbxm"}
         },
+        "TraderModels": {
+          "$className": "Folder",
+          "$ignoreUnknownInstances": true
+        },
         "NPCAppearance": {
           "$className": "Folder",
           "$ignoreUnknownInstances": true
