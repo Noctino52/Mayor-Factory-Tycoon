@@ -33,6 +33,106 @@ local R6_LIMBS = {
 	["Right Leg"] = "RightLeg",
 }
 
+--[[
+	A standard R6 character, built here rather than cloned from a rig someone
+	has to make in Studio first. Nothing about a block rig is secret: six
+	parts at known sizes with the names clothing looks for, a Humanoid, and
+	the attachment points accessories hang from.
+
+	The attachment names and positions are Roblox's own. Humanoid:AddAccessory
+	matches an accessory's attachment against these by name, so a hat sits on
+	HatAttachment and a beard on FaceFrontAttachment without being told.
+]]
+local R6_PARTS = {
+	{ name = "Head", size = Vector3.new(2, 1, 1), y = 4.5 },
+	{ name = "Torso", size = Vector3.new(2, 2, 1), y = 3 },
+	{ name = "Left Arm", size = Vector3.new(1, 2, 1), y = 3, x = -1.5 },
+	{ name = "Right Arm", size = Vector3.new(1, 2, 1), y = 3, x = 1.5 },
+	{ name = "Left Leg", size = Vector3.new(1, 2, 1), y = 1, x = -0.5 },
+	{ name = "Right Leg", size = Vector3.new(1, 2, 1), y = 1, x = 0.5 },
+}
+
+local HEAD_ATTACHMENTS = {
+	HatAttachment = Vector3.new(0, 0.5, 0),
+	HairAttachment = Vector3.new(0, 0.5, 0),
+	FaceFrontAttachment = Vector3.new(0, 0, -0.5),
+	FaceCenterAttachment = Vector3.new(0, 0, 0),
+}
+
+local TORSO_ATTACHMENTS = {
+	NeckAttachment = Vector3.new(0, 1, 0),
+	BodyFrontAttachment = Vector3.new(0, 0, -0.5),
+	BodyBackAttachment = Vector3.new(0, 0, 0.5),
+	LeftCollarAttachment = Vector3.new(-1, 1, 0),
+	RightCollarAttachment = Vector3.new(1, 1, 0),
+	WaistCenterAttachment = Vector3.new(0, -1, 0),
+	WaistFrontAttachment = Vector3.new(0, -1, -0.5),
+	WaistBackAttachment = Vector3.new(0, -1, 0.5),
+}
+
+local function addAttachments(part, points)
+	for name, position in pairs(points) do
+		local attachment = Instance.new("Attachment")
+		attachment.Name = name
+		attachment.Position = position
+		attachment.Parent = part
+	end
+end
+
+function NPCAppearance.BuildRig(name)
+	local model = Instance.new("Model")
+	model.Name = name or "Rig"
+
+	for _, spec in ipairs(R6_PARTS) do
+		local part = Instance.new("Part")
+		part.Name = spec.name
+		part.Size = spec.size
+		part.Position = Vector3.new(spec.x or 0, spec.y, 0)
+		part.Anchored = true
+		part.CanCollide = false
+		part.CanQuery = false
+		part.CanTouch = false
+		part.TopSurface = Enum.SurfaceType.Smooth
+		part.BottomSurface = Enum.SurfaceType.Smooth
+		part.Parent = model
+
+		if spec.name == "Head" then
+			local mesh = Instance.new("SpecialMesh")
+			mesh.MeshType = Enum.MeshType.Head
+			mesh.Scale = Vector3.new(1.25, 1.25, 1.25)
+			mesh.Parent = part
+
+			local face = Instance.new("Decal")
+			face.Name = "face"
+			face.Texture = "rbxasset://textures/face.png"
+			face.Face = Enum.NormalId.Front
+			face.Parent = part
+
+			addAttachments(part, HEAD_ATTACHMENTS)
+		elseif spec.name == "Torso" then
+			addAttachments(part, TORSO_ATTACHMENTS)
+		end
+	end
+
+	local root = Instance.new("Part")
+	root.Name = "HumanoidRootPart"
+	root.Size = Vector3.new(2, 2, 1)
+	root.Position = Vector3.new(0, 3, 0)
+	root.Transparency = 1
+	root.Anchored = true
+	root.CanCollide = false
+	root.CanQuery = false
+	root.CanTouch = false
+	root.Parent = model
+
+	local humanoid = Instance.new("Humanoid")
+	humanoid.RigType = Enum.HumanoidRigType.R6
+	humanoid.Parent = model
+
+	model.PrimaryPart = root
+	return model
+end
+
 local function appearanceFolder()
 	local shared = ReplicatedStorage:FindFirstChild("Shared")
 	return shared and shared:FindFirstChild("NPCAppearance")
@@ -158,13 +258,15 @@ function NPCAppearance.Build(npcName, scale)
 		return nil
 	end
 
-	local rig = folder:FindFirstChild("Rig")
 	local wardrobe = folder:FindFirstChild(npcName)
-	if not rig or not rig:IsA("Model") or not wardrobe then
+	if not wardrobe or #wardrobe:GetChildren() == 0 then
 		return nil
 	end
 
-	local model = rig:Clone()
+	-- A rig dropped in the folder wins, for anyone who wants to hand-build
+	-- one; otherwise the standard R6 body is built here.
+	local rig = folder:FindFirstChild("Rig")
+	local model = (rig and rig:IsA("Model")) and rig:Clone() or NPCAppearance.BuildRig(npcName)
 	model.Name = npcName
 
 	wear(model, wardrobe)
