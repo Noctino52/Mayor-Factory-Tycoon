@@ -33,6 +33,13 @@ local HAIR_DARK = Color3.fromRGB(72, 46, 30)
 local HI_VIS = Color3.fromRGB(232, 182, 44)
 local HI_VIS_DEEP = Color3.fromRGB(206, 156, 30)
 
+-- How long the celebration runs after a sale, in seconds
+local CHEER_TIME = 1.4
+
+-- Heights everything worn is measured from, at R6 scale 1
+local TORSO_Y = CharacterRig.TorsoY(1)
+local HEAD_Y = CharacterRig.HeadY(1)
+
 --[[
 	The modelled accessories, from modeling/accessories.py. Each is uploaded
 	as a mesh - free, through Studio's asset manager - and modelled around the
