@@ -39,116 +39,73 @@ local HI_VIS_DEEP = Color3.fromRGB(206, 156, 30)
 	centre of the R6 head, so hanging one off the head offset needs no numbers
 	guessed at this end.
 
-	A zero means that mesh is not uploaded yet, and the trader wearing it
+	One entry per mesh, and an accessory is split by material where it has
+	two: a hat with a darker ridge is two meshes at the same place in two
+	colours, because a single mesh can only be one colour.
+
+	A zero means that mesh is not uploaded yet, and any trader wearing it
 	falls back to the accessory built out of parts.
 ]]
 local ACCESSORY_MESHES = {
-	hardhat = 0,
-	hair_long = 0,
-	beard_full = 0,
-	beard_smith = 0,
-	cap_soft = 0,
+	hardhat_HiVis = 0,
+	hardhat_HiVisDeep = 0,
+	hair_long_HairDark = 0,
+	hair_long_Leather = 0,
+	beard_full_HairBlack = 0,
+	beard_smith_HairFair = 0,
+	cap_soft_ClothDark = 0,
+	cap_soft_Leather = 0,
 }
 
-local function worn(mesh, colour, material)
-	local id = ACCESSORY_MESHES[mesh]
-	if not id or id == 0 then
-		return nil
+local ACCESSORY_COLOURS = {
+	hardhat_HiVis = HI_VIS,
+	hardhat_HiVisDeep = HI_VIS_DEEP,
+	hair_long_HairDark = HAIR_DARK,
+	hair_long_Leather = LEATHER,
+	beard_full_HairBlack = Color3.fromRGB(32, 30, 32),
+	beard_smith_HairFair = Color3.fromRGB(214, 178, 96),
+	cap_soft_ClothDark = Color3.fromRGB(78, 82, 84),
+	cap_soft_Leather = LEATHER,
+}
+
+-- Every mesh belonging to one accessory, or nil if any of them is missing.
+-- All or nothing: a modelled hat over a mesh that never arrived would show
+-- as a hat with a hole where its ridge should be.
+local function worn(accessory)
+	local pieces = {}
+
+	for key, id in pairs(ACCESSORY_MESHES) do
+		if string.sub(key, 1, #accessory + 1) == accessory .. "_" then
+			if id == 0 then
+				return nil
+			end
+
+			table.insert(pieces, {
+				name = key,
+				meshId = id,
+				size = Vector3.new(1, 1, 1),
+				color = ACCESSORY_COLOURS[key],
+				offset = Vector3.new(0, HEAD_Y, 0),
+			})
+		end
 	end
 
-	return {
-		name = mesh,
-		meshId = id,
-		size = Vector3.new(1, 1, 1),
-		color = colour,
-		material = material,
-		offset = Vector3.new(0, HEAD_Y, 0),
-	}
+	return #pieces > 0 and pieces or nil
 end
 
--- Every modelled piece this trader wears, or nil if any of them is missing:
--- half a face of modelled hair over a blocky beard looks worse than either.
+-- What a trader wears when all of it has been uploaded, otherwise nil
 local function modelled(...)
 	local pieces = {}
-	for _, piece in ipairs({ ... }) do
-		if not piece then
+
+	for _, accessory in ipairs({ ... }) do
+		if not accessory then
 			return nil
 		end
-		table.insert(pieces, piece)
-	end
-	return pieces
-end
-
--- How long the celebration runs after a sale, in seconds
-local CHEER_TIME = 1.4
-
--- Heights everything worn is measured from, at R6 scale 1
-local TORSO_Y = CharacterRig.TorsoY(1)
-local HEAD_Y = CharacterRig.HeadY(1)
-
---[[
-	One entry per trader.
-
-	`stand` is where they stand on the zone and `work` is the point they face,
-	both in studs from its centre and in the zone's own frame, so they follow
-	it when it is rotated. The stall models put the bench at their own +Y,
-	which the FBX export turns into -Z here: the trader stands behind the
-	bench, looking out at the customer side, which is where deliveries come
-	from.
-
-	`dress` is what they wear, `tool` what they hold, and `motion` is the
-	shape of the job: where the hand goes over the course of one stroke,
-	relative to the shoulder. A saw runs back and forth, a trowel dabs, a
-	hammer is lifted slowly and dropped fast - they are recognisable from
-	across the plot by the rhythm alone.
-]]
---[[
-	A hard hat, shared by the two who wear one: a squashed ball for the shell
-	with the brim under it, which is the shape that stops it reading as a
-	slab on a box. The brim sits above the eyes so the face still shows.
-]]
-local function hardHat(shell, trim)
-	return {
-		{ name = "HelmetBrim", size = Vector3.new(2.70, 0.16, 2.70), color = trim, offset = Vector3.new(0, HEAD_Y + 0.45, 0) },
-		{ name = "HelmetShell", size = Vector3.new(2.30, 1.30, 2.20), color = shell, shape = Enum.PartType.Ball, offset = Vector3.new(0, HEAD_Y + 0.72, 0) },
-		{ name = "HelmetRidge", size = Vector3.new(0.42, 0.34, 2.05), color = trim, offset = Vector3.new(0, HEAD_Y + 1.16, 0) },
-		{ name = "HelmetPeak", size = Vector3.new(1.40, 0.14, 0.94), color = trim, offset = Vector3.new(0, HEAD_Y + 0.40, -1.32), tilt = Vector3.new(-0.16, 0, 0) },
-	}
-end
-
---[[
-	A beard around the jaw rather than across it: two sides and a chin, so it
-	frames the face instead of covering it. A block over the front of the
-	head hides the eyes, which is what makes a figure look like a brick.
-]]
-local function beard(colour, moustache)
-	local pieces = {
-		{ name = "BeardChin", size = Vector3.new(1.44, 0.64, 0.62), color = colour, offset = Vector3.new(0, HEAD_Y - 0.74, -0.34) },
-		{ name = "BeardJawL", size = Vector3.new(0.36, 1.06, 1.02), color = colour, offset = Vector3.new(-1.02, HEAD_Y - 0.42, -0.18) },
-		{ name = "BeardJawR", size = Vector3.new(0.36, 1.06, 1.02), color = colour, offset = Vector3.new(1.02, HEAD_Y - 0.42, -0.18) },
-	}
-
-	if moustache then
-		table.insert(pieces, { name = "Moustache", size = Vector3.new(0.96, 0.24, 0.26), color = colour, offset = Vector3.new(0, HEAD_Y - 0.36, -0.66) })
-	end
-
-	return pieces
-end
-
-local function boots(colour)
-	return {
-		{ name = "BootL", size = Vector3.new(1.06, 0.46, 1.34), color = colour, offset = Vector3.new(-0.5, 0.23, -0.12) },
-		{ name = "BootR", size = Vector3.new(1.06, 0.46, 1.34), color = colour, offset = Vector3.new(0.5, 0.23, -0.12) },
-	}
-end
-
-local function dressed(...)
-	local pieces = {}
-	for _, group in ipairs({ ... }) do
-		for _, piece in ipairs(group) do
+		for _, piece in ipairs(accessory) do
 			table.insert(pieces, piece)
 		end
 	end
+
 	return pieces
 end
 
@@ -166,10 +123,7 @@ local NPC_SPECS = {
 			arms = Color3.fromRGB(138, 62, 52),
 			trousers = Color3.fromRGB(222, 176, 60),
 		},
-		meshDress = modelled(
-			worn("hair_long", HAIR_DARK),
-			worn("hardhat", HI_VIS)
-		),
+		meshDress = modelled(worn("hair_long"), worn("hardhat")),
 		accessories = dressed(
 			{
 				{ name = "HairCrown", size = Vector3.new(2.40, 1.30, 2.32), color = HAIR_DARK, shape = Enum.PartType.Ball, offset = Vector3.new(0, HEAD_Y + 0.36, 0.06) },
@@ -227,10 +181,7 @@ local NPC_SPECS = {
 			arms = Color3.fromRGB(46, 54, 72),
 			trousers = Color3.fromRGB(52, 72, 116),
 		},
-		meshDress = modelled(
-			worn("beard_full", Color3.fromRGB(32, 30, 32)),
-			worn("hardhat", HI_VIS)
-		),
+		meshDress = modelled(worn("beard_full"), worn("hardhat")),
 		accessories = dressed(
 			hardHat(HI_VIS, HI_VIS_DEEP),
 			beard(Color3.fromRGB(32, 30, 32), true)
@@ -278,10 +229,7 @@ local NPC_SPECS = {
 			arms = Color3.fromRGB(238, 236, 228),
 			trousers = Color3.fromRGB(58, 58, 60),
 		},
-		meshDress = modelled(
-			worn("beard_smith", Color3.fromRGB(214, 178, 96)),
-			worn("cap_soft", Color3.fromRGB(78, 82, 84))
-		),
+		meshDress = modelled(worn("beard_smith"), worn("cap_soft")),
 		accessories = dressed(
 			{
 				{ name = "Cap", size = Vector3.new(2.24, 1.10, 2.16), color = Color3.fromRGB(78, 82, 84), shape = Enum.PartType.Ball, offset = Vector3.new(0, HEAD_Y + 0.62, 0.06) },
