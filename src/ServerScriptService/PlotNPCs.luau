@@ -47,14 +47,14 @@ local HI_VIS_DEEP = Color3.fromRGB(206, 156, 30)
 	falls back to the accessory built out of parts.
 ]]
 local ACCESSORY_MESHES = {
-	hardhat_HiVis = 0,
-	hardhat_HiVisDeep = 0,
+	hardhat_HiVis = 139724763178122,
+	hardhat_HiVisDeep = 123788971694773,
 	hair_long_HairDark = 0,
 	hair_long_Leather = 0,
-	beard_full_HairBlack = 0,
-	beard_smith_HairFair = 0,
-	cap_soft_ClothDark = 0,
-	cap_soft_Leather = 0,
+	beard_full_HairBlack = 96480316812528,
+	beard_smith_HairFair = 71877859801393,
+	cap_soft_ClothDark = 92202864339003,
+	cap_soft_Leather = 103166760847000,
 }
 
 local ACCESSORY_COLOURS = {
