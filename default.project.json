@@ -49,7 +49,9 @@
         },
         "TraderModels": {
           "$className": "Folder",
-          "$ignoreUnknownInstances": true
+          "Mira": {"$path": "src/Workspace/Models/mira.rbxm"},
+          "Bront": {"$path": "src/Workspace/Models/bront.rbxm"},
+          "Elrik": {"$path": "src/Workspace/Models/elrik.rbxm"}
         },
         "NPCAppearance": {
           "$className": "Folder",

@@ -148,7 +148,32 @@ end
 	importing the figure whole rather than hanging accessories on a rig and
 	guessing at the offsets.
 ]]
-local MODEL_GROUPS = { "Head", "Torso", "ArmL", "ArmR", "LegL", "LegR" }
+--[[
+	The colours Studio's importer throws away. Every part comes in named
+	<Npc><Group>_<Material>, so the material is the last word of the name and
+	nothing has to be listed part by part.
+]]
+local TRADER_MATERIALS = {
+	SkinLight = { color = Color3.fromRGB(238, 196, 160), material = Enum.Material.SmoothPlastic },
+	SkinTan = { color = Color3.fromRGB(222, 172, 128), material = Enum.Material.SmoothPlastic },
+	Plaid = { color = Color3.fromRGB(150, 58, 48), material = Enum.Material.Fabric },
+	PlaidDark = { color = Color3.fromRGB(96, 32, 26), material = Enum.Material.Fabric },
+	HiVis = { color = Color3.fromRGB(232, 182, 44), material = Enum.Material.SmoothPlastic },
+	HiVisDeep = { color = Color3.fromRGB(198, 148, 22), material = Enum.Material.SmoothPlastic },
+	Reflect = { color = Color3.fromRGB(238, 240, 236), material = Enum.Material.SmoothPlastic },
+	WorkNavy = { color = Color3.fromRGB(46, 54, 72), material = Enum.Material.Fabric },
+	Denim = { color = Color3.fromRGB(52, 72, 116), material = Enum.Material.Fabric },
+	Linen = { color = Color3.fromRGB(238, 236, 228), material = Enum.Material.Fabric },
+	Leather = { color = Color3.fromRGB(96, 62, 38), material = Enum.Material.SmoothPlastic },
+	LeatherDark = { color = Color3.fromRGB(52, 38, 26), material = Enum.Material.SmoothPlastic },
+	ApronGrey = { color = Color3.fromRGB(74, 56, 40), material = Enum.Material.SmoothPlastic },
+	Boot = { color = Color3.fromRGB(58, 40, 28), material = Enum.Material.SmoothPlastic },
+	Brass = { color = Color3.fromRGB(198, 158, 74), material = Enum.Material.Metal },
+	HairDark = { color = Color3.fromRGB(72, 46, 30), material = Enum.Material.SmoothPlastic },
+	HairBlack = { color = Color3.fromRGB(28, 26, 28), material = Enum.Material.SmoothPlastic },
+	HairFair = { color = Color3.fromRGB(214, 178, 96), material = Enum.Material.SmoothPlastic },
+	RuleRed = { color = Color3.fromRGB(176, 44, 40), material = Enum.Material.SmoothPlastic },
+}
 
 local GROUP_LIMBS = {
 	Head = "Head",
@@ -202,6 +227,13 @@ function NPCAppearance.BuildFromModel(npcName, scale)
 			part.CanCollide = false
 			part.CanQuery = false
 			part.CanTouch = false
+
+			local suffix = string.match(part.Name, "_(%w+)$")
+			local style = suffix and TRADER_MATERIALS[suffix]
+			if style then
+				part.Color = style.color
+				part.Material = style.material
+			end
 
 			local group = groupOf(part.Name, npcName)
 			if group then
