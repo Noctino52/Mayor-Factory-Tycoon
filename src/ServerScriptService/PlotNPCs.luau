@@ -479,20 +479,34 @@ local function poseWorkArm(rig, frame, scale, angle)
 		return
 	end
 
-	-- One part or twenty, the arm swings about the shoulder as one thing
-	local shoulder = CharacterRig.Shoulder(scale, 1)
+	--[[
+		One part or twenty, the arm swings about its shoulder as one thing.
+
+		The shoulder comes off the parts themselves where they carry one: an
+		imported figure is turned to face the way it is posed, which puts its
+		right shoulder on the other side of the centre line from where the
+		built rig keeps it.
+	]]
+	local shoulder = nil
+	for _, part in ipairs(arm) do
+		shoulder = shoulder or part:GetAttribute("Pivot")
+	end
+	shoulder = shoulder or CharacterRig.Shoulder(scale, 1)
+
 	local swing = frame * CFrame.new(shoulder) * CFrame.Angles(angle, 0, 0) * CFrame.new(-shoulder)
 
 	for _, part in ipairs(arm) do
 		local offset = part:GetAttribute("Offset")
 		if offset then
-			part.CFrame = swing * CFrame.new(offset)
+			local tilt = part:GetAttribute("Tilt")
+			local placed = swing * CFrame.new(offset)
+			part.CFrame = tilt and (placed * CFrame.Angles(tilt.X, tilt.Y, tilt.Z)) or placed
 		else
 			part.CFrame = CharacterRig.ArmCFrame(frame, scale, 1, angle)
 		end
 	end
 
-	local hand = CharacterRig.HandPoint(scale, 1, angle)
+	local hand = shoulder + (CFrame.Angles(angle, 0, 0) * CFrame.new(0, -R6.limb.Y * scale, 0)).Position
 	local grip = frame * CFrame.new(hand) * CFrame.Angles(angle, 0, 0)
 
 	for _, part in ipairs(rig:GetChildren()) do

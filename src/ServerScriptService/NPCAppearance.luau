@@ -237,16 +237,28 @@ function NPCAppearance.BuildFromModel(npcName, scale)
 
 			local group = groupOf(part.Name, npcName)
 			if group then
+				--[[
+					Turned to face the way the figure is posed.
+
+					The models are built with their front at Blender's -Y,
+					which the exporter lands on +Z here, while a posing frame
+					looks down -Z like everything else in the engine. Half a
+					turn about the vertical squares the two up: the offsets
+					are mirrored through the centre line, and the parts carry
+					the same turn so their geometry follows.
+				]]
 				part:SetAttribute("Limb", GROUP_LIMBS[group])
 				part:SetAttribute("Offset", Vector3.new(
-					part.Position.X - bounds.Position.X,
+					-(part.Position.X - bounds.Position.X),
 					part.Position.Y - feetY,
-					part.Position.Z - bounds.Position.Z
+					-(part.Position.Z - bounds.Position.Z)
 				))
+				part:SetAttribute("Tilt", Vector3.new(0, math.pi, 0))
 
+				-- The joints mirror with everything else
 				local pivot = GROUP_PIVOTS[group]
 				if pivot then
-					part:SetAttribute("Pivot", pivot * (scale or 1))
+					part:SetAttribute("Pivot", Vector3.new(-pivot.X, pivot.Y, -pivot.Z) * (scale or 1))
 				end
 				tagged += 1
 			end
