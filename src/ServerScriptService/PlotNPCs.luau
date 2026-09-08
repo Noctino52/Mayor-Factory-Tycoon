@@ -201,6 +201,7 @@ local NPC_SPECS = {
 			arms = Color3.fromRGB(138, 62, 52),
 			trousers = Color3.fromRGB(222, 176, 60),
 		},
+		wears = { "hair_long", "hardhat" },
 		meshDress = modelled(worn("hair_long"), worn("hardhat")),
 		accessories = dressed(
 			{
@@ -259,6 +260,7 @@ local NPC_SPECS = {
 			arms = Color3.fromRGB(46, 54, 72),
 			trousers = Color3.fromRGB(52, 72, 116),
 		},
+		wears = { "beard_full", "hardhat" },
 		meshDress = modelled(worn("beard_full"), worn("hardhat")),
 		accessories = dressed(
 			hardHat(HI_VIS, HI_VIS_DEEP),
@@ -307,6 +309,7 @@ local NPC_SPECS = {
 			arms = Color3.fromRGB(238, 236, 228),
 			trousers = Color3.fromRGB(58, 58, 60),
 		},
+		wears = { "beard_smith", "cap_soft" },
 		meshDress = modelled(worn("beard_smith"), worn("cap_soft")),
 		accessories = dressed(
 			{
@@ -382,13 +385,23 @@ local function buildNPC(npcName)
 		return nil
 	end
 
-	-- A figure modelled whole comes first: it arrives with its clothes and
-	-- its hat already where they belong, which is the one thing hanging
-	-- accessories on a bare rig could never get right.
-	local rig = NPCAppearance.BuildFromModel(npcName, spec.scale)
-	local modelled = rig ~= nil
+	--[[
+		A Roblox character is blocks with its clothes painted on, not
+		sculpted geometry: the shirt is a texture, and no amount of modelling
+		a collar gets that look. So the dressed R6 rig comes first.
 
-	rig = rig or NPCAppearance.Build(npcName, spec.scale)
+		The figure modelled whole in Blender stays as the fallback. It reads
+		as a toy rather than an avatar, but it is better than nobody at the
+		counter if the clothing assets ever fail to load.
+	]]
+	local rig = NPCAppearance.Build(npcName, spec.scale)
+	local modelled = false
+
+	if not rig then
+		rig = NPCAppearance.BuildFromModel(npcName, spec.scale)
+		modelled = rig ~= nil
+	end
+
 	if not rig then
 		-- The stand-in has to wear its clothes, because it has no textures
 		rig = CharacterRig.Build(npcName, spec.scale, spec.palette)
@@ -396,10 +409,21 @@ local function buildNPC(npcName)
 		newPart("RightArm", R6.limb * spec.scale, spec.palette.arms or spec.palette.shirt, rig)
 	end
 
-	-- A whole modelled figure already has its hat and beard on it; anything
-	-- else needs them adding.
+	--[[
+		A whole modelled figure already has its hat and beard on it. A
+		dressed rig does not: its clothes are painted on, and a texture
+		cannot give anyone a brim or a chin, so those go on as models.
+	]]
 	if not modelled then
-		CharacterRig.Dress(rig, spec.scale, spec.meshDress or spec.accessories)
+		local allWorn = true
+		for _, accessory in ipairs(spec.wears or {}) do
+			allWorn = NPCAppearance.AddAccessory(rig, accessory, spec.scale) and allWorn
+		end
+
+		-- Nothing imported yet: fall back to the ones built out of parts
+		if not allWorn or not spec.wears then
+			CharacterRig.Dress(rig, spec.scale, spec.accessories)
+		end
 	end
 
 	buildTool(rig, spec)

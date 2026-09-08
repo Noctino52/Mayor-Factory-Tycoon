@@ -47,6 +47,10 @@
           "Conveyor": {"$path": "src/Workspace/Models/Conveyor Belt.rbxm"},
           "CurvedConveyor": {"$path": "src/Workspace/Models/Curved Conveyor.rbxm"}
         },
+        "Accessories": {
+          "$className": "Folder",
+          "$ignoreUnknownInstances": true
+        },
         "TraderModels": {
           "$className": "Folder",
           "Mira": {"$path": "src/Workspace/Models/mira.rbxm"},

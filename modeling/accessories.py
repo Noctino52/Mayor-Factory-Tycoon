@@ -293,61 +293,44 @@ def report(name):
 
 def export(name):
     """
-    One file per material, each holding a single joined object.
+    One file per accessory, holding every piece at the position it was
+    modelled at.
 
-    An FBX with several objects in it comes into Studio as a Model of
-    MeshParts, and a SpecialMesh can only take one mesh. Joining first means
-    one upload gives one mesh id. Splitting by material rather than joining
-    everything keeps the two-tone pieces - a hat with a darker ridge, a cap
-    with a leather band - which one mesh could not carry.
+    Studio imports this as a Model, which is what we want: saved as an
+    .rbxm it keeps each part exactly where it is. Uploading the pieces as
+    separate meshes does not - Roblox recentres a mesh on its own bounding
+    box, and the offsets are gone by the time the game sees them.
     """
     os.makedirs(EXPORT_DIR, exist_ok=True)
 
-    bpy.ops.object.select_all(action="DESELECT")
+    for obj in bpy.context.scene.objects:
+        obj.select_set(obj.type == "MESH" and obj.name != PREVIEW)
+
+    path = os.path.join(EXPORT_DIR, f"acc_{name}.fbx")
+    bpy.ops.export_scene.fbx(
+        filepath=path,
+        use_selection=True,
+        apply_unit_scale=True,
+        apply_scale_options="FBX_SCALE_ALL",
+        axis_forward="-Z",
+        axis_up="Y",
+        mesh_smooth_type="FACE",
+        bake_space_transform=True,
+        use_mesh_modifiers=True,
+    )
+    print(f"[export] {path}")
+
+
+def name_pieces(name):
+    """
+    Prefix every piece with its accessory. Two hats both had a Shell and a
+    Brim, and once they are models in the same folder that is a collision
+    waiting to happen.
+    """
     for obj in list(bpy.context.scene.objects):
-        if obj.type != "MESH" or obj.name == PREVIEW:
-            continue
-        bpy.context.view_layer.objects.active = obj
-        for modifier in list(obj.modifiers):
-            bpy.ops.object.modifier_apply(modifier=modifier.name)
-
-    groups = {}
-    for obj in list(bpy.context.scene.objects):
-        if obj.type != "MESH" or obj.name == PREVIEW:
-            continue
-        material_name = obj.data.materials[0].name if obj.data.materials else "Untextured"
-        groups.setdefault(material_name, []).append(obj)
-
-    written = []
-    for material_name, objects in groups.items():
-        bpy.ops.object.select_all(action="DESELECT")
-        for obj in objects:
-            obj.select_set(True)
-        bpy.context.view_layer.objects.active = objects[0]
-        if len(objects) > 1:
-            bpy.ops.object.join()
-
-        joined = bpy.context.active_object
-        joined.name = f"{name}_{material_name}"
-
-        bpy.ops.object.select_all(action="DESELECT")
-        joined.select_set(True)
-
-        path = os.path.join(EXPORT_DIR, f"acc_{name}_{material_name}.fbx")
-        bpy.ops.export_scene.fbx(
-            filepath=path,
-            use_selection=True,
-            apply_unit_scale=True,
-            apply_scale_options="FBX_SCALE_ALL",
-            axis_forward="-Z",
-            axis_up="Y",
-            mesh_smooth_type="FACE",
-            bake_space_transform=True,
-            use_mesh_modifiers=True,
-        )
-        written.append(f"acc_{name}_{material_name}")
-
-    print(f"[export] {name}: " + ", ".join(written))
+        if obj.type == "MESH" and obj.name != PREVIEW:
+            material_name = obj.data.materials[0].name if obj.data.materials else "Untextured"
+            obj.name = f"{name}_{material_name}_{obj.name}"
 
 
 def main():
@@ -356,6 +339,7 @@ def main():
         build_materials()
         preview_head()
         build()
+        name_pieces(name)
         setup_lighting()
         cam = setup_camera()
         setup_render()

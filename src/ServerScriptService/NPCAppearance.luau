@@ -389,6 +389,87 @@ local function dressFromDefinition(model, npcName)
 	return dressed
 end
 
+--[[
+	The modelled accessories: a hat, hair, a beard. Each is one model saved
+	from Blender, and it goes on the head whole.
+
+	Saved as an .rbxm rather than uploaded as meshes on purpose. An .rbxm
+	keeps every part exactly where it was modelled; an uploaded mesh does
+	not - Roblox recentres it on its own bounding box, and the position it
+	was drawn at is gone before the game ever sees it.
+]]
+local ACCESSORY_COLOURS = {
+	HiVis = { color = Color3.fromRGB(232, 182, 44), material = Enum.Material.SmoothPlastic },
+	HiVisDeep = { color = Color3.fromRGB(198, 148, 22), material = Enum.Material.SmoothPlastic },
+	HairDark = { color = Color3.fromRGB(72, 46, 30), material = Enum.Material.SmoothPlastic },
+	HairBlack = { color = Color3.fromRGB(28, 26, 28), material = Enum.Material.SmoothPlastic },
+	HairFair = { color = Color3.fromRGB(214, 178, 96), material = Enum.Material.SmoothPlastic },
+	ClothDark = { color = Color3.fromRGB(78, 82, 84), material = Enum.Material.Fabric },
+	Leather = { color = Color3.fromRGB(96, 62, 38), material = Enum.Material.SmoothPlastic },
+}
+
+--[[
+	Hangs one accessory on the head. The pieces are modelled around the head's
+	centre, so they need placing there and nowhere else - the whole reason for
+	keeping them in a model rather than as loose meshes.
+]]
+function NPCAppearance.AddAccessory(model, accessoryName, scale)
+	local shared = ReplicatedStorage:FindFirstChild("Shared")
+	local folder = shared and shared:FindFirstChild("Accessories")
+	local source = folder and folder:FindFirstChild(accessoryName)
+	if not source then
+		return false
+	end
+
+	local head = nil
+	for _, part in ipairs(model:GetDescendants()) do
+		if part:IsA("BasePart") and (part:GetAttribute("Limb") or part.Name) == "Head" then
+			head = part
+			break
+		end
+	end
+
+	if not head then
+		return false
+	end
+
+	local headOffset = head:GetAttribute("Offset")
+	local worn = source:Clone()
+	worn.Name = accessoryName
+
+	for _, part in ipairs(worn:GetDescendants()) do
+		if part:IsA("BasePart") then
+			part.Anchored = true
+			part.CanCollide = false
+			part.CanQuery = false
+			part.CanTouch = false
+
+			local suffix = string.match(part.Name, "^[%w_]-_(%a+)_")
+			local style = suffix and ACCESSORY_COLOURS[suffix]
+			if style then
+				part.Color = style.color
+				part.Material = style.material
+			end
+
+			-- Modelled around the head's centre, so its own position is the
+			-- offset from the head, and the head's offset puts it on the body
+			part:SetAttribute("Offset", headOffset + part.Position * scale)
+
+			-- The piece keeps the angle it was modelled at - a cap peak, a
+			-- plait - with the figure's half turn composed onto it, or the
+			-- poser would stand every one of them upright.
+			local turned = CFrame.Angles(0, math.pi, 0) * (part.CFrame - part.CFrame.Position)
+			local rx, ry, rz = turned:ToEulerAnglesXYZ()
+			part:SetAttribute("Tilt", Vector3.new(rx, ry, rz))
+			part.Size = part.Size * scale
+			part.Parent = model
+		end
+	end
+
+	worn:Destroy()
+	return true
+end
+
 local function wear(model, wardrobe)
 	local humanoid = model:FindFirstChildWhichIsA("Humanoid")
 
