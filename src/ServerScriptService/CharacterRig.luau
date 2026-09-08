@@ -107,7 +107,8 @@ end
 	piece is placed at an offset from the figure's feet, so PoseBody carries
 	it along with everything else and it needs no special handling.
 
-	A piece may be a `shape` other than a block and may carry a `tilt`. Both
+	A piece may be a modelled `meshId`, a `shape` other than a block, or carry
+	a `tilt`. The shapes and tilts matter more than they sound: the
 	matter more than they sound: a helmet is a squashed ball and a cap peak
 	is a tilted slab, and at this size the difference between those and two
 	flat boxes is the difference between a person and a stack of bricks.
@@ -126,7 +127,16 @@ function CharacterRig.Dress(rig, scale, pieces)
 		)
 		part.Material = piece.material or Enum.Material.SmoothPlastic
 
-		if piece.shape then
+		if piece.meshId then
+			-- A FileMesh draws at its own authored size times Scale, and
+			-- ignores the part's, so the part is only a peg to hang it on.
+			part.Size = Vector3.new(0.05, 0.05, 0.05)
+			local mesh = Instance.new("SpecialMesh")
+			mesh.MeshType = Enum.MeshType.FileMesh
+			mesh.MeshId = "rbxassetid://" .. tostring(piece.meshId)
+			mesh.Scale = Vector3.new(scale, scale, scale)
+			mesh.Parent = part
+		elseif piece.shape then
 			part.Shape = piece.shape
 		end
 

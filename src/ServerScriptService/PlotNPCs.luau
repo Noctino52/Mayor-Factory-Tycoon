@@ -33,6 +33,52 @@ local HAIR_DARK = Color3.fromRGB(72, 46, 30)
 local HI_VIS = Color3.fromRGB(232, 182, 44)
 local HI_VIS_DEEP = Color3.fromRGB(206, 156, 30)
 
+--[[
+	The modelled accessories, from modeling/accessories.py. Each is uploaded
+	as a mesh - free, through Studio's asset manager - and modelled around the
+	centre of the R6 head, so hanging one off the head offset needs no numbers
+	guessed at this end.
+
+	A zero means that mesh is not uploaded yet, and the trader wearing it
+	falls back to the accessory built out of parts.
+]]
+local ACCESSORY_MESHES = {
+	hardhat = 0,
+	hair_long = 0,
+	beard_full = 0,
+	beard_smith = 0,
+	cap_soft = 0,
+}
+
+local function worn(mesh, colour, material)
+	local id = ACCESSORY_MESHES[mesh]
+	if not id or id == 0 then
+		return nil
+	end
+
+	return {
+		name = mesh,
+		meshId = id,
+		size = Vector3.new(1, 1, 1),
+		color = colour,
+		material = material,
+		offset = Vector3.new(0, HEAD_Y, 0),
+	}
+end
+
+-- Every modelled piece this trader wears, or nil if any of them is missing:
+-- half a face of modelled hair over a blocky beard looks worse than either.
+local function modelled(...)
+	local pieces = {}
+	for _, piece in ipairs({ ... }) do
+		if not piece then
+			return nil
+		end
+		table.insert(pieces, piece)
+	end
+	return pieces
+end
+
 -- How long the celebration runs after a sale, in seconds
 local CHEER_TIME = 1.4
 
@@ -120,6 +166,10 @@ local NPC_SPECS = {
 			arms = Color3.fromRGB(138, 62, 52),
 			trousers = Color3.fromRGB(222, 176, 60),
 		},
+		meshDress = modelled(
+			worn("hair_long", HAIR_DARK),
+			worn("hardhat", HI_VIS)
+		),
 		accessories = dressed(
 			{
 				{ name = "HairCrown", size = Vector3.new(2.40, 1.30, 2.32), color = HAIR_DARK, shape = Enum.PartType.Ball, offset = Vector3.new(0, HEAD_Y + 0.36, 0.06) },
@@ -177,6 +227,10 @@ local NPC_SPECS = {
 			arms = Color3.fromRGB(46, 54, 72),
 			trousers = Color3.fromRGB(52, 72, 116),
 		},
+		meshDress = modelled(
+			worn("beard_full", Color3.fromRGB(32, 30, 32)),
+			worn("hardhat", HI_VIS)
+		),
 		accessories = dressed(
 			hardHat(HI_VIS, HI_VIS_DEEP),
 			beard(Color3.fromRGB(32, 30, 32), true)
@@ -224,6 +278,10 @@ local NPC_SPECS = {
 			arms = Color3.fromRGB(238, 236, 228),
 			trousers = Color3.fromRGB(58, 58, 60),
 		},
+		meshDress = modelled(
+			worn("beard_smith", Color3.fromRGB(214, 178, 96)),
+			worn("cap_soft", Color3.fromRGB(78, 82, 84))
+		),
 		accessories = dressed(
 			{
 				{ name = "Cap", size = Vector3.new(2.24, 1.10, 2.16), color = Color3.fromRGB(78, 82, 84), shape = Enum.PartType.Ball, offset = Vector3.new(0, HEAD_Y + 0.62, 0.06) },
@@ -307,8 +365,9 @@ local function buildNPC(npcName)
 	end
 
 	-- Hats, hair and beards are geometry either way: a texture can put a
-	-- shirt on someone but it cannot give them a brim or a chin.
-	CharacterRig.Dress(rig, spec.scale, spec.accessories)
+	-- shirt on someone but it cannot give them a brim or a chin. The
+	-- modelled ones are used when they have been uploaded.
+	CharacterRig.Dress(rig, spec.scale, spec.meshDress or spec.accessories)
 
 	buildTool(rig, spec)
 	return rig
