@@ -116,6 +116,59 @@ local function modelled(...)
 	return pieces
 end
 
+--[[
+	A hard hat, shared by the two who wear one: a squashed ball for the shell
+	with the brim under it, which is the shape that stops it reading as a
+	slab on a box. The brim sits above the eyes so the face still shows.
+
+	Used when the modelled accessories are not available.
+]]
+local function hardHat(shell, trim)
+	return {
+		{ name = "HelmetBrim", size = Vector3.new(2.70, 0.16, 2.70), color = trim, offset = Vector3.new(0, HEAD_Y + 0.45, 0) },
+		{ name = "HelmetShell", size = Vector3.new(2.30, 1.30, 2.20), color = shell, shape = Enum.PartType.Ball, offset = Vector3.new(0, HEAD_Y + 0.72, 0) },
+		{ name = "HelmetRidge", size = Vector3.new(0.42, 0.34, 2.05), color = trim, offset = Vector3.new(0, HEAD_Y + 1.16, 0) },
+		{ name = "HelmetPeak", size = Vector3.new(1.40, 0.14, 0.94), color = trim, offset = Vector3.new(0, HEAD_Y + 0.40, -1.32), tilt = Vector3.new(-0.16, 0, 0) },
+	}
+end
+
+--[[
+	A beard around the jaw rather than across it: two sides and a chin, so it
+	frames the face instead of covering it. A block over the front of the
+	head hides the eyes, which is what makes a figure look like a brick.
+]]
+local function beard(colour, moustache)
+	local pieces = {
+		{ name = "BeardChin", size = Vector3.new(1.44, 0.64, 0.62), color = colour, offset = Vector3.new(0, HEAD_Y - 0.74, -0.34) },
+		{ name = "BeardJawL", size = Vector3.new(0.36, 1.06, 1.02), color = colour, offset = Vector3.new(-1.02, HEAD_Y - 0.42, -0.18) },
+		{ name = "BeardJawR", size = Vector3.new(0.36, 1.06, 1.02), color = colour, offset = Vector3.new(1.02, HEAD_Y - 0.42, -0.18) },
+	}
+
+	if moustache then
+		table.insert(pieces, { name = "Moustache", size = Vector3.new(0.96, 0.24, 0.26), color = colour, offset = Vector3.new(0, HEAD_Y - 0.36, -0.66) })
+	end
+
+	return pieces
+end
+
+local function boots(colour)
+	return {
+		{ name = "BootL", size = Vector3.new(1.06, 0.46, 1.34), color = colour, offset = Vector3.new(-0.5, 0.23, -0.12) },
+		{ name = "BootR", size = Vector3.new(1.06, 0.46, 1.34), color = colour, offset = Vector3.new(0.5, 0.23, -0.12) },
+	}
+end
+
+-- Flattens several groups of worn pieces into the one list Dress takes
+local function dressed(...)
+	local pieces = {}
+	for _, group in ipairs({ ... }) do
+		for _, piece in ipairs(group) do
+			table.insert(pieces, piece)
+		end
+	end
+	return pieces
+end
+
 local NPC_SPECS = {
 	--[[
 		Mira, carpenter. Hard hat over shoulder-length hair, plaid work shirt,
